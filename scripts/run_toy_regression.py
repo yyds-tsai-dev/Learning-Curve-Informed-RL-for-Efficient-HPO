@@ -46,14 +46,12 @@ def main() -> None:
 
     summary = evaluator.summarize(traces)
     print("Baseline Evaluation Summary")
-    print(
-        "task,method,runs,val_rmse_mean,val_rmse_std,test_rmse_mean,simple_regret_mean"
-    )
+    print("task,method,runs,val_score_mean,val_score_std,test_score_mean,simple_regret_mean")
     for row in summary:
         print(
             f"{row['task']},{row['method']},{row['runs']},"
-            f"{row['best_val_rmse_mean']:.4f},{row['best_val_rmse_std']:.4f},"
-            f"{row['best_test_rmse_mean']:.4f},{row['simple_regret_mean']:.4f}"
+            f"{row['best_val_score_mean']:.4f},{row['best_val_score_std']:.4f},"
+            f"{row['best_test_score_mean']:.4f},{row['simple_regret_mean']:.4f}"
         )
     print(f"\nSaved traces, summary, and conclusion to {args.output_dir}")
 

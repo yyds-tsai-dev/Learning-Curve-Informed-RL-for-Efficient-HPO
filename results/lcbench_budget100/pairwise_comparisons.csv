@@ -1,0 +1,43 @@
+task,method_a,method_b,mean_delta_a_minus_b,std_delta,wins_a,wins_b,ties,runs
+lcbench_APSFailure,Bayesian Optimization,HyperRL-MLP,-0.1904296875,0.2857374993667822,3,1,1,5
+lcbench_APSFailure,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.110687255859375,0.14549987886549146,4,1,0,5
+lcbench_APSFailure,Bayesian Optimization,Random Search,-0.19400024414062217,0.17327319462285745,4,1,0,5
+lcbench_APSFailure,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.079742431640625,0.2342731433315353,1,2,2,5
+lcbench_APSFailure,HyperRL-MLP,Random Search,-0.0035705566406221577,0.19931610617645912,2,2,1,5
+lcbench_APSFailure,OurMethod-LC-DQN-MLP,Random Search,-0.08331298828124716,0.08426395997340812,3,0,2,5
+lcbench_Australian,Bayesian Optimization,HyperRL-MLP,-0.13071899414062785,0.2922965568488406,1,0,4,5
+lcbench_Australian,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.13071899414062785,0.2922965568488406,1,0,4,5
+lcbench_Australian,Bayesian Optimization,Random Search,0.0,0.4621614359336126,1,1,3,5
+lcbench_Australian,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.0,0.0,0,0,5,5
+lcbench_Australian,HyperRL-MLP,Random Search,0.13071899414062785,0.2922965568488406,0,1,4,5
+lcbench_Australian,OurMethod-LC-DQN-MLP,Random Search,0.13071899414062785,0.2922965568488406,0,1,4,5
+lcbench_Fashion-MNIST,Bayesian Optimization,HyperRL-MLP,-0.62799072265625,0.462870406354843,5,0,0,5
+lcbench_Fashion-MNIST,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.49231414794921874,0.1902577342631078,5,0,0,5
+lcbench_Fashion-MNIST,Bayesian Optimization,Random Search,-0.6900131225585937,0.5018103604618696,5,0,0,5
+lcbench_Fashion-MNIST,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.13567657470703126,0.3376972963170474,1,2,2,5
+lcbench_Fashion-MNIST,HyperRL-MLP,Random Search,-0.06202239990234375,0.6096062223593806,2,2,1,5
+lcbench_Fashion-MNIST,OurMethod-LC-DQN-MLP,Random Search,-0.197698974609375,0.41754826981591947,2,1,2,5
+lcbench_MiniBooNE,Bayesian Optimization,HyperRL-MLP,-0.8269302368164062,0.1998620781315459,5,0,0,5
+lcbench_MiniBooNE,Bayesian Optimization,OurMethod-LC-DQN-MLP,-1.4445205688476563,0.9522476061718849,5,0,0,5
+lcbench_MiniBooNE,Bayesian Optimization,Random Search,-1.059918212890625,0.4582374526637442,5,0,0,5
+lcbench_MiniBooNE,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.61759033203125,1.0414881572229016,2,1,2,5
+lcbench_MiniBooNE,HyperRL-MLP,Random Search,-0.23298797607421876,0.35744814084915655,2,1,2,5
+lcbench_MiniBooNE,OurMethod-LC-DQN-MLP,Random Search,0.38460235595703124,0.859997012226493,0,1,4,5
+lcbench_adult,Bayesian Optimization,HyperRL-MLP,1.18148193359375,1.4306481249266558,1,4,0,5
+lcbench_adult,Bayesian Optimization,OurMethod-LC-DQN-MLP,0.7703704833984375,0.7193492974406702,1,4,0,5
+lcbench_adult,Bayesian Optimization,Random Search,-0.24444427490234374,0.09899413902872209,5,0,0,5
+lcbench_adult,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.4111114501953125,1.554609883945494,4,1,0,5
+lcbench_adult,HyperRL-MLP,Random Search,-1.4259262084960938,1.3657780390192584,4,1,0,5
+lcbench_adult,OurMethod-LC-DQN-MLP,Random Search,-1.0148147583007812,0.7301472285897315,5,0,0,5
+lcbench_bank-marketing,Bayesian Optimization,HyperRL-MLP,-0.13804168701171876,0.20419167086378756,3,2,0,5
+lcbench_bank-marketing,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.0420135498046875,0.11566206073929057,3,1,1,5
+lcbench_bank-marketing,Bayesian Optimization,Random Search,-0.0360107421875,0.41794914685385126,3,2,0,5
+lcbench_bank-marketing,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.09602813720703125,0.18193219646522868,1,2,2,5
+lcbench_bank-marketing,HyperRL-MLP,Random Search,0.10203094482421875,0.3129335062324531,2,3,0,5
+lcbench_bank-marketing,OurMethod-LC-DQN-MLP,Random Search,0.0060028076171875,0.4110091032919457,3,2,0,5
+lcbench_credit-g,Bayesian Optimization,HyperRL-MLP,-0.8108078002929687,1.7561774784713116,3,1,1,5
+lcbench_credit-g,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.36035919189453125,0.8057897818798708,4,1,0,5
+lcbench_credit-g,Bayesian Optimization,Random Search,-0.63062744140625,1.0848262484560136,2,1,2,5
+lcbench_credit-g,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.4504486083984375,1.3132774479011664,2,2,1,5
+lcbench_credit-g,HyperRL-MLP,Random Search,0.18018035888671874,1.5142074413467912,2,1,2,5
+lcbench_credit-g,OurMethod-LC-DQN-MLP,Random Search,-0.27026824951171874,0.7537466954667997,3,2,0,5

@@ -1,4 +1,4 @@
-task,method,runs,best_val_rmse_mean,best_val_rmse_std,best_test_rmse_mean,best_test_rmse_std,simple_regret_mean,simple_regret_std,best_iteration_mean
-toy_synthetic_regression,Bayesian Optimization,5,0.1753002721551697,0.00018096500954376343,0.20143350447700353,0.0003046370841666651,0.0002088986388886549,0.00036716132220702437,8.8
-toy_synthetic_regression,HyperRL,5,0.17519724003906806,0.0003546507603994938,0.20203567615953494,0.0006574743459214356,0.00010586652278702369,0.00020109455837684676,7.0
-toy_synthetic_regression,Random Search,5,0.17533392038536022,0.00014348858134945018,0.20184175308299349,0.00021369507679212804,0.000242546869079191,0.00030496932989809846,11.2
+task,method,runs,best_val_score_mean,best_val_score_std,best_test_score_mean,best_test_score_std,simple_regret_mean,simple_regret_std,best_iteration_mean
+toy_synthetic_regression,Bayesian Optimization,1,0.17544108137294182,0.0,0.20153723042274205,0.0,0.0,0.0,3.0
+toy_synthetic_regression,HyperRL-MLP,1,0.17622579475293842,0.0,0.20045595869263125,0.0,0.00078471337999661,0.0,1.0
+toy_synthetic_regression,Random Search,1,0.17544108137294182,0.0,0.20153723042274205,0.0,0.0,0.0,3.0

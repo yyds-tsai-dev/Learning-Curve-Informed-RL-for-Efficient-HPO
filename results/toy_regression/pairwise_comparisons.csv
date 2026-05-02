@@ -1,4 +1,4 @@
 task,method_a,method_b,mean_delta_a_minus_b,std_delta,wins_a,wins_b,ties,runs
-toy_synthetic_regression,Bayesian Optimization,HyperRL,0.00010303211610163121,0.0004778666669105177,2,3,0,5
-toy_synthetic_regression,Bayesian Optimization,Random Search,-3.364823019053609e-05,0.00017174796579292237,2,3,0,5
-toy_synthetic_regression,HyperRL,Random Search,-0.0001366803462921673,0.0003851073416389989,2,3,0,5
+toy_synthetic_regression,Bayesian Optimization,HyperRL-MLP,-0.00078471337999661,0.0,1,0,0,1
+toy_synthetic_regression,Bayesian Optimization,Random Search,0.0,0.0,0,0,1,1
+toy_synthetic_regression,HyperRL-MLP,Random Search,0.00078471337999661,0.0,0,1,0,1

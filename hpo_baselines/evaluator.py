@@ -49,8 +49,8 @@ class BaselineEvaluator:
                     "task": trace.task,
                     "method": trace.method,
                     "seed": trace.seed,
-                    "best_val_rmse": best.val_score,
-                    "best_test_rmse": best.test_score,
+                    "best_val_score": best.val_score,
+                    "best_test_score": best.test_score,
                     "simple_regret": best.val_score - oracle,
                     "best_iteration": best.iteration,
                 }
@@ -67,10 +67,10 @@ class BaselineEvaluator:
                     "task": task,
                     "method": method,
                     "runs": len(rows),
-                    "best_val_rmse_mean": _mean(rows, "best_val_rmse"),
-                    "best_val_rmse_std": _std(rows, "best_val_rmse"),
-                    "best_test_rmse_mean": _mean(rows, "best_test_rmse"),
-                    "best_test_rmse_std": _std(rows, "best_test_rmse"),
+                    "best_val_score_mean": _mean(rows, "best_val_score"),
+                    "best_val_score_std": _std(rows, "best_val_score"),
+                    "best_test_score_mean": _mean(rows, "best_test_score"),
+                    "best_test_score_std": _std(rows, "best_test_score"),
                     "simple_regret_mean": _mean(rows, "simple_regret"),
                     "simple_regret_std": _std(rows, "simple_regret"),
                     "best_iteration_mean": _mean(rows, "best_iteration"),
@@ -177,37 +177,72 @@ class BaselineEvaluator:
 
     @staticmethod
     def conclusion(summary: list[dict[str, Any]]) -> str:
-        ranked = sorted(summary, key=lambda row: row["best_val_rmse_mean"])
+        if not summary:
+            return "# Baseline Evaluation Conclusion\n\nNo completed evaluations were recorded.\n"
         lines = ["# Baseline Evaluation Conclusion", ""]
         lines.append(
-            "Lower RMSE and lower simple regret are better. The oracle for simple regret is "
-            "the best validation RMSE observed by any compared method under the same task and seed."
+            "Lower validation score and lower simple regret are better. The oracle for simple regret is "
+            "the best validation score observed by any compared method under the same task and seed."
         )
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        by_method: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in summary:
+            grouped[row["task"]].append(row)
+            by_method[row["method"]].append(row)
+
+        for task, rows in sorted(grouped.items()):
+            lines.append("")
+            lines.append(f"## {task}")
+            lines.append("")
+            lines.append("| Rank | Method | Val score mean | Test score mean | Simple regret mean |")
+            lines.append("| --- | --- | ---: | ---: | ---: |")
+            for idx, row in enumerate(sorted(rows, key=lambda item: item["best_val_score_mean"]), start=1):
+                lines.append(
+                    f"| {idx} | {row['method']} | {row['best_val_score_mean']:.4f} | "
+                    f"{row['best_test_score_mean']:.4f} | {row['simple_regret_mean']:.4f} |"
+                )
+
+        overall = []
+        for method, rows in by_method.items():
+            overall.append(
+                {
+                    "method": method,
+                    "tasks": len(rows),
+                    "avg_simple_regret": mean(row["simple_regret_mean"] for row in rows),
+                    "avg_rank": mean(
+                        1
+                        + sorted(grouped[row["task"]], key=lambda item: item["best_val_score_mean"]).index(row)
+                        for row in rows
+                    ),
+                }
+            )
+        overall = sorted(overall, key=lambda row: (row["avg_simple_regret"], row["avg_rank"]))
         lines.append("")
-        lines.append("| Rank | Method | Val RMSE mean | Test RMSE mean | Simple regret mean |")
+        lines.append("## Overall")
+        lines.append("")
+        lines.append("| Rank | Method | Avg simple regret | Avg per-task rank | Tasks |")
         lines.append("| --- | --- | ---: | ---: | ---: |")
-        for idx, row in enumerate(ranked, start=1):
+        for idx, row in enumerate(overall, start=1):
             lines.append(
-                f"| {idx} | {row['method']} | {row['best_val_rmse_mean']:.4f} | "
-                f"{row['best_test_rmse_mean']:.4f} | {row['simple_regret_mean']:.4f} |"
+                f"| {idx} | {row['method']} | {row['avg_simple_regret']:.4f} | "
+                f"{row['avg_rank']:.2f} | {row['tasks']} |"
             )
 
-        winner = ranked[0]
+        winner = overall[0]
         lines.append("")
         lines.append(
-            f"On this toy regression task, **{winner['method']}** gives the strongest average "
-            f"validation RMSE ({winner['best_val_rmse_mean']:.4f}). The gap between methods is "
-            "small in this deliberately simple task, so the result should be treated as a smoke "
-            "test for the protocol rather than decisive evidence. Random Search is the "
-            "sanity-check lower bound, Bayesian Optimization tests sample-efficient surrogate "
-            "modeling, and HyperRL tests a sequential RL-style policy that can consume learning "
-            "curve trend features."
+            f"Across the selected tasks, **{winner['method']}** gives the best average simple regret "
+            f"({winner['avg_simple_regret']:.4f}). "
+            "Random Search is the sanity-check lower bound, Bayesian Optimization tests "
+            "sample-efficient surrogate modeling, HyperRL-MLP tests the paper-style DQN setup "
+            "with an MLP encoder, and OurMethod-LC-DQN-MLP adds learning-curve and derivative "
+            "state features."
         )
         lines.append("")
         lines.append(
-            "This is a lightweight baseline scaffold, not yet a full reproduction of Hyp-RL's "
-            "LSTM policy. It is intended to make the evaluation protocol concrete before plugging "
-            "in HPOBench/NAS-Bench-360 or a learned cross-dataset policy."
+            "The DQN implementation intentionally replaces the original Hyp-RL LSTM encoder with "
+            "an MLP, as requested. The LCBench adapter can be pointed at the official downloaded "
+            "JSON file for full-scale evaluation."
         )
         return "\n".join(lines) + "\n"
 

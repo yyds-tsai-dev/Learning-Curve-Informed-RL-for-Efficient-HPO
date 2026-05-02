@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from math import erf, pi, sqrt
 from typing import Any, Protocol
@@ -54,15 +55,30 @@ class RandomSearch(BaseOptimizer):
     def optimize(self, task: HPOTask, budget: int, seed: int) -> OptimizationTrace:
         rng = np.random.default_rng(seed)
         evaluations: list[EvaluationRecord] = []
+        candidates = _candidate_configs(task)
+        used: set[int] = set()
         for iteration in range(budget):
-            config = task.search_space.sample(rng)
+            if candidates is None:
+                config = task.search_space.sample(rng)
+            else:
+                available = [idx for idx in range(len(candidates)) if idx not in used]
+                if not available:
+                    break
+                idx = int(rng.choice(available))
+                used.add(idx)
+                config = candidates[idx]
             result = task.evaluate(config, seed=int(rng.integers(0, 2**31 - 1)))
             evaluations.append(_record(iteration, config, result))
         return OptimizationTrace(self.name, task.name, seed, evaluations)
 
 
 class BayesianOptimization(BaseOptimizer):
-    """Gaussian-process BO with Expected Improvement over sampled candidates."""
+    """Gaussian-process BO with Expected Improvement.
+
+    On tabular benchmarks such as LCBench, EI is computed over the finite
+    configuration table. On open search spaces, it is computed over a sampled
+    candidate pool.
+    """
 
     name = "Bayesian Optimization"
 
@@ -83,9 +99,27 @@ class BayesianOptimization(BaseOptimizer):
         configs: list[dict[str, Any]] = []
         scores: list[float] = []
         evaluations: list[EvaluationRecord] = []
+        finite_candidates = _candidate_configs(task)
+        used: set[int] = set()
 
         for iteration in range(budget):
-            if iteration < min(self.initial_points, budget):
+            if finite_candidates is not None:
+                available = [idx for idx in range(len(finite_candidates)) if idx not in used]
+                if not available:
+                    break
+                if iteration < min(self.initial_points, budget):
+                    idx = int(rng.choice(available))
+                else:
+                    x_train = task.search_space.to_matrix(configs)
+                    y_train = np.asarray(scores, dtype=float)
+                    x_candidates = task.search_space.to_matrix(
+                        [finite_candidates[idx] for idx in available]
+                    )
+                    ei = self._expected_improvement(x_train, y_train, x_candidates)
+                    idx = available[int(np.argmax(ei))]
+                used.add(idx)
+                config = finite_candidates[idx]
+            elif iteration < min(self.initial_points, budget):
                 config = task.search_space.sample(rng)
             else:
                 candidates = task.search_space.sample_many(rng, self.candidate_pool_size)
@@ -138,107 +172,341 @@ class BayesianOptimization(BaseOptimizer):
 
 
 class HyperRLOptimizer(BaseOptimizer):
-    """Small HyperRL-style baseline using approximate Q-learning.
+    """Hyp-RL-style DQN with the paper/repo state, using an MLP instead of LSTM.
 
-    This is intentionally a toy proxy for Hyp-RL: it treats HPO as sequential
-    decisions over a fixed candidate pool and updates a linear Q function from
-    validation reward plus learning-curve trend features.
+    The original implementation uses a DQN controller over a finite
+    hyperparameter grid, replay buffer, epsilon-greedy exploration, and a target
+    network. Its recurrent LSTM state encoder is replaced here by a padded
+    history vector consumed by an MLP.
     """
 
-    name = "HyperRL"
+    name = "HyperRL-MLP"
 
     def __init__(
         self,
-        candidate_pool_size: int = 128,
-        epsilon_start: float = 0.45,
+        hidden_sizes: tuple[int, ...] = (128, 128),
+        learning_rate: float = 1e-3,
+        gamma: float = 0.99,
+        replay_size: int = 1024,
+        batch_size: int = 32,
+        learning_starts: int = 4,
+        target_update_freq: int = 10,
+        epsilon_start: float = 1.0,
         epsilon_end: float = 0.05,
-        learning_rate: float = 0.08,
-        gamma: float = 0.6,
+        reward_mode: str = "improvement",
     ) -> None:
-        self.candidate_pool_size = candidate_pool_size
-        self.epsilon_start = epsilon_start
-        self.epsilon_end = epsilon_end
+        self.hidden_sizes = hidden_sizes
         self.learning_rate = learning_rate
         self.gamma = gamma
+        self.replay_size = replay_size
+        self.batch_size = batch_size
+        self.learning_starts = learning_starts
+        self.target_update_freq = target_update_freq
+        self.epsilon_start = epsilon_start
+        self.epsilon_end = epsilon_end
+        self.reward_mode = reward_mode
 
     def optimize(self, task: HPOTask, budget: int, seed: int) -> OptimizationTrace:
+        controller = _DQNController(
+            method_name=self.name,
+            include_curve_features=False,
+            hidden_sizes=self.hidden_sizes,
+            learning_rate=self.learning_rate,
+            gamma=self.gamma,
+            replay_size=self.replay_size,
+            batch_size=self.batch_size,
+            learning_starts=self.learning_starts,
+            target_update_freq=self.target_update_freq,
+            epsilon_start=self.epsilon_start,
+            epsilon_end=self.epsilon_end,
+            reward_mode=self.reward_mode,
+        )
+        return controller.optimize(task, budget, seed)
+
+
+class LearningCurveDQNOptimizer(HyperRLOptimizer):
+    """Our method: Hyp-RL-MLP plus learning-curve value and derivative features."""
+
+    name = "OurMethod-LC-DQN-MLP"
+
+    def optimize(self, task: HPOTask, budget: int, seed: int) -> OptimizationTrace:
+        controller = _DQNController(
+            method_name=self.name,
+            include_curve_features=True,
+            hidden_sizes=self.hidden_sizes,
+            learning_rate=self.learning_rate,
+            gamma=self.gamma,
+            replay_size=self.replay_size,
+            batch_size=self.batch_size,
+            learning_starts=self.learning_starts,
+            target_update_freq=self.target_update_freq,
+            epsilon_start=self.epsilon_start,
+            epsilon_end=self.epsilon_end,
+            reward_mode=self.reward_mode,
+        )
+        return controller.optimize(task, budget, seed)
+
+
+@dataclass
+class _Transition:
+    state: np.ndarray
+    action: int
+    reward: float
+    next_state: np.ndarray
+    done: bool
+
+
+class _ReplayBuffer:
+    def __init__(self, capacity: int) -> None:
+        self.items: deque[_Transition] = deque(maxlen=capacity)
+
+    def add(self, transition: _Transition) -> None:
+        self.items.append(transition)
+
+    def sample(self, rng: np.random.Generator, batch_size: int) -> list[_Transition]:
+        idx = rng.choice(len(self.items), size=batch_size, replace=False)
+        return [self.items[int(item)] for item in idx]
+
+    def __len__(self) -> int:
+        return len(self.items)
+
+
+class _DQNController:
+    def __init__(
+        self,
+        method_name: str,
+        include_curve_features: bool,
+        hidden_sizes: tuple[int, ...],
+        learning_rate: float,
+        gamma: float,
+        replay_size: int,
+        batch_size: int,
+        learning_starts: int,
+        target_update_freq: int,
+        epsilon_start: float,
+        epsilon_end: float,
+        reward_mode: str,
+    ) -> None:
+        self.method_name = method_name
+        self.include_curve_features = include_curve_features
+        self.hidden_sizes = hidden_sizes
+        self.learning_rate = learning_rate
+        self.gamma = gamma
+        self.replay_size = replay_size
+        self.batch_size = batch_size
+        self.learning_starts = learning_starts
+        self.target_update_freq = target_update_freq
+        self.epsilon_start = epsilon_start
+        self.epsilon_end = epsilon_end
+        if reward_mode not in {"raw", "improvement"}:
+            raise ValueError("reward_mode must be 'raw' or 'improvement'")
+        self.reward_mode = reward_mode
+
+    def optimize(self, task: HPOTask, budget: int, seed: int) -> OptimizationTrace:
+        torch, nn, optim = _load_torch()
         rng = np.random.default_rng(seed)
-        candidates = task.search_space.sample_many(rng, self.candidate_pool_size)
-        action_features = task.search_space.to_matrix(candidates)
-        state = np.zeros(4, dtype=float)
-        theta = np.zeros(self._feature(action_features[0], state).shape[0], dtype=float)
+        torch.manual_seed(seed)
+
+        candidates = _candidate_configs(task)
+        if candidates is None:
+            candidates = task.search_space.sample_many(rng, max(budget * 8, 64))
+        action_vectors = task.search_space.to_matrix(candidates)
+        meta = _meta_features(task)
+        row_dim = action_vectors.shape[1] + 1 + len(meta) + (5 if self.include_curve_features else 0)
+        state_dim = budget * row_dim
+        n_actions = len(candidates)
+
+        online = _MLPQNetwork(state_dim, n_actions, self.hidden_sizes, nn)
+        target = _MLPQNetwork(state_dim, n_actions, self.hidden_sizes, nn)
+        target.load_state_dict(online.state_dict())
+        optimizer = optim.Adam(online.parameters(), lr=self.learning_rate)
+        replay = _ReplayBuffer(self.replay_size)
+
+        history = np.zeros((budget, row_dim), dtype=np.float32)
         used: set[int] = set()
         evaluations: list[EvaluationRecord] = []
+        previous_raw_reward = 0.0
 
         for iteration in range(budget):
-            epsilon = self._epsilon(iteration, max(budget - 1, 1))
-            available = np.asarray([idx for idx in range(len(candidates)) if idx not in used])
-            if len(available) == 0:
+            state = history.reshape(-1).copy()
+            available = [idx for idx in range(n_actions) if idx not in used]
+            if not available:
                 break
-
-            if rng.random() < epsilon:
-                action_idx = int(rng.choice(available))
-            else:
-                q_values = np.asarray(
-                    [theta @ self._feature(action_features[idx], state) for idx in available]
-                )
-                action_idx = int(available[int(np.argmax(q_values))])
-
+            epsilon = _linear_epsilon(
+                iteration,
+                max(budget - 1, 1),
+                start=self.epsilon_start,
+                end=self.epsilon_end,
+            )
+            action_idx = self._select_action(torch, online, state, available, rng, epsilon)
             used.add(action_idx)
-            feature = self._feature(action_features[action_idx], state)
+
             config = candidates[action_idx]
             result = task.evaluate(config, seed=int(rng.integers(0, 2**31 - 1)))
-            reward = -result.val_score
-            next_state = self._state_from_curve(result.learning_curve, iteration, budget)
-            next_available = np.asarray([idx for idx in range(len(candidates)) if idx not in used])
-            if len(next_available):
-                next_q = max(
-                    theta @ self._feature(action_features[idx], next_state)
-                    for idx in next_available
-                )
-            else:
-                next_q = 0.0
-            td_error = reward + self.gamma * next_q - theta @ feature
-            theta += self.learning_rate * td_error * feature
-            state = next_state
+            raw_reward = -float(result.val_score)
+            reward = (
+                max(0.0, raw_reward - previous_raw_reward)
+                if self.reward_mode == "improvement"
+                else raw_reward
+            )
+            previous_raw_reward = raw_reward
+
+            history[iteration] = self._history_row(
+                action_vectors[action_idx],
+                raw_reward,
+                meta,
+                result.learning_curve,
+            )
+            next_state = history.reshape(-1).copy()
+            done = iteration == budget - 1 or len(used) == n_actions
+            replay.add(_Transition(state, action_idx, reward, next_state, done))
+
+            loss = None
+            if len(replay) >= max(self.learning_starts, self.batch_size):
+                loss = self._train_step(torch, nn, online, target, optimizer, replay, rng)
+            if (iteration + 1) % self.target_update_freq == 0:
+                target.load_state_dict(online.state_dict())
 
             evaluations.append(
                 _record(
                     iteration,
                     config,
                     result,
-                    extra={"epsilon": float(epsilon), "reward": float(reward)},
+                    extra={
+                        "action_idx": int(action_idx),
+                        "epsilon": float(epsilon),
+                        "raw_reward": raw_reward,
+                        "dqn_reward": float(reward),
+                        "loss": None if loss is None else float(loss),
+                    },
                 )
             )
 
-        return OptimizationTrace(self.name, task.name, seed, evaluations)
+        return OptimizationTrace(self.method_name, task.name, seed, evaluations)
 
-    def _epsilon(self, iteration: int, denominator: int) -> float:
-        frac = iteration / denominator
-        return self.epsilon_start + frac * (self.epsilon_end - self.epsilon_start)
+    def _select_action(
+        self,
+        torch: Any,
+        network: Any,
+        state: np.ndarray,
+        available: list[int],
+        rng: np.random.Generator,
+        epsilon: float,
+    ) -> int:
+        if rng.random() < epsilon:
+            return int(rng.choice(available))
+        with torch.no_grad():
+            tensor = torch.as_tensor(state, dtype=torch.float32).unsqueeze(0)
+            q_values = network(tensor).squeeze(0).detach().cpu().numpy()
+        masked = q_values[available]
+        return int(available[int(np.argmax(masked))])
 
-    @staticmethod
-    def _state_from_curve(curve: list[float], iteration: int, budget: int) -> np.ndarray:
-        values = np.asarray(curve, dtype=float)
-        if len(values) < 3:
-            return np.asarray([iteration / budget, 0.0, 0.0, 0.0], dtype=float)
-        tail = values[-min(8, len(values)) :]
-        first_derivative = np.diff(tail)
-        second_derivative = np.diff(first_derivative) if len(first_derivative) > 1 else np.zeros(1)
-        total_drop = values[0] - values[-1]
-        return np.asarray(
-            [
-                iteration / max(budget, 1),
-                float(np.clip(-first_derivative.mean(), -1.0, 1.0)),
-                float(np.clip(-second_derivative.mean(), -1.0, 1.0)),
-                float(np.clip(total_drop, -1.0, 1.0)),
-            ],
-            dtype=float,
-        )
+    def _history_row(
+        self,
+        action_vector: np.ndarray,
+        reward: float,
+        meta: np.ndarray,
+        curve: list[float],
+    ) -> np.ndarray:
+        pieces = [action_vector.astype(np.float32), np.asarray([reward], dtype=np.float32), meta]
+        if self.include_curve_features:
+            pieces.append(_curve_features(curve))
+        return np.concatenate(pieces).astype(np.float32)
 
-    @staticmethod
-    def _feature(action: np.ndarray, state: np.ndarray) -> np.ndarray:
-        return np.concatenate(([1.0], action, state, np.outer(action, state).ravel()))
+    def _train_step(
+        self,
+        torch: Any,
+        nn: Any,
+        online: Any,
+        target: Any,
+        optimizer: Any,
+        replay: _ReplayBuffer,
+        rng: np.random.Generator,
+    ) -> float:
+        batch = replay.sample(rng, self.batch_size)
+        states = torch.as_tensor(np.vstack([item.state for item in batch]), dtype=torch.float32)
+        actions = torch.as_tensor([item.action for item in batch], dtype=torch.int64)
+        rewards = torch.as_tensor([item.reward for item in batch], dtype=torch.float32)
+        next_states = torch.as_tensor(np.vstack([item.next_state for item in batch]), dtype=torch.float32)
+        dones = torch.as_tensor([item.done for item in batch], dtype=torch.float32)
+
+        q_selected = online(states).gather(1, actions.view(-1, 1)).squeeze(1)
+        with torch.no_grad():
+            next_q = target(next_states).max(dim=1).values
+            targets = rewards + self.gamma * next_q * (1.0 - dones)
+        loss = nn.functional.mse_loss(q_selected, targets)
+        optimizer.zero_grad()
+        loss.backward()
+        nn.utils.clip_grad_norm_(online.parameters(), 10.0)
+        optimizer.step()
+        return float(loss.detach().cpu().item())
+
+
+class _MLPQNetwork:
+    def __new__(cls, input_dim: int, output_dim: int, hidden_sizes: tuple[int, ...], nn: Any) -> Any:
+        layers = []
+        current = input_dim
+        for hidden in hidden_sizes:
+            layers.append(nn.Linear(current, hidden))
+            layers.append(nn.ReLU())
+            current = hidden
+        layers.append(nn.Linear(current, output_dim))
+        return nn.Sequential(*layers)
+
+
+def _load_torch() -> tuple[Any, Any, Any]:
+    try:
+        import torch
+        from torch import nn, optim
+    except ImportError as exc:
+        raise ImportError(
+            "HyperRL-MLP and OurMethod-LC-DQN-MLP require torch. "
+            "Install dependencies with `python3 -m pip install -r requirements.txt`."
+        ) from exc
+    return torch, nn, optim
+
+
+def _candidate_configs(task: HPOTask) -> list[dict[str, Any]] | None:
+    candidates = getattr(task, "candidate_configs", None)
+    if candidates is None:
+        return None
+    return [dict(config) for config in candidates]
+
+
+def _meta_features(task: HPOTask) -> np.ndarray:
+    if hasattr(task, "meta_features"):
+        values = np.asarray(task.meta_features(), dtype=np.float32)
+    else:
+        values = np.zeros(0, dtype=np.float32)
+    if len(values) == 0:
+        return values
+    scale = np.linalg.norm(values)
+    return values / (scale + 1e-8)
+
+
+def _curve_features(curve: list[float]) -> np.ndarray:
+    values = np.asarray(curve, dtype=float)
+    if len(values) == 0:
+        return np.zeros(5, dtype=np.float32)
+    tail = values[-min(8, len(values)) :]
+    first = np.diff(tail)
+    second = np.diff(first) if len(first) > 1 else np.zeros(1)
+    features = np.asarray(
+        [
+            values[-1],
+            float(np.min(values)),
+            float(first.mean()) if len(first) else 0.0,
+            float(second.mean()) if len(second) else 0.0,
+            values[0] - values[-1],
+        ],
+        dtype=np.float32,
+    )
+    return np.clip(features, -1e3, 1e3)
+
+
+def _linear_epsilon(iteration: int, denominator: int, start: float, end: float) -> float:
+    frac = iteration / denominator
+    return float(start + frac * (end - start))
 
 
 def _record(
