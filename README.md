@@ -4,12 +4,18 @@ This repository contains a lightweight HPO evaluation scaffold for the project p
 
 ## LCBench Baselines
 
+Python 3.12 is used for this project. Create the local uv environment and install dependencies with:
+
+```bash
+uv venv --python 3.12
+uv pip install -r requirements.txt
+```
+
 LCBench is the primary tabular benchmark interface. Pass the official downloaded LCBench JSON
 from figshare, or run the tiny fixture for a smoke test:
 
 ```bash
-python3 -m pip install -r requirements.txt
-python3 scripts/run_lcbench_baselines.py --data-path data/tiny_lcbench.json
+uv run python scripts/run_lcbench_baselines.py --data-path data/tiny_lcbench.json
 ```
 
 For the full LCBench file, use a larger budget, for example `--budget 20`, and optionally
@@ -18,7 +24,7 @@ For the full LCBench file, use a larger budget, for example `--budget 20`, and o
 The current official-data result was generated with:
 
 ```bash
-python3 scripts/run_lcbench_baselines.py \
+uv run python scripts/run_lcbench_baselines.py \
   --data-path data/lcbench/data_2k_lw.json \
   --datasets credit-g,Fashion-MNIST,Australian,adult,bank-marketing,MiniBooNE,APSFailure \
   --budget 20 \
@@ -47,11 +53,12 @@ Budget sweep outputs are also available:
 - `results/lcbench_budget50/`
 - `results/lcbench_budget100/`
 - `results/lcbench_budget_sweep.md`
+- `results/lcbench_budget500_20datasets/`
 
 ## Toy Regression Baseline
 
 The earlier synthetic regression smoke test is still available:
 
 ```bash
-python3 scripts/run_toy_regression.py --budget 20 --seeds 5
+uv run python scripts/run_toy_regression.py --budget 20 --seeds 5
 ```

@@ -7,12 +7,14 @@ from typing import Any
 
 import numpy as np
 
-from .search_space import Parameter, SearchSpace
+from .search_space import Config, Parameter, SearchSpace
 
 np.seterr(over="ignore", invalid="ignore", divide="ignore")
 
+type LCBenchData = dict[str, Any]
 
-@dataclass
+
+@dataclass(slots=True)
 class EvalResult:
     val_score: float
     test_score: float
@@ -77,7 +79,7 @@ class SyntheticRegressionTask:
     def metric_name() -> str:
         return "RMSE"
 
-    def evaluate(self, config: dict[str, Any], seed: int) -> EvalResult:
+    def evaluate(self, config: Config, seed: int) -> EvalResult:
         rng = np.random.default_rng(seed)
         learning_rate = float(config["learning_rate"])
         l2 = float(config["l2"])
@@ -164,27 +166,30 @@ class LCBenchTask:
         val_metric_tag: str = "Train/val_accuracy",
         test_metric_tag: str = "final_test_accuracy",
         limit_configs: int | None = None,
-        data: dict[str, Any] | None = None,
+        data: LCBenchData | None = None,
     ) -> None:
         self.data_path = Path(data_path)
         if data is None:
-            with self.data_path.open(encoding="utf-8") as handle:
-                self.data = json.load(handle)
+            self.data = json.loads(self.data_path.read_text(encoding="utf-8"))
         else:
             self.data = data
         self.dataset_name = dataset_name or sorted(self.data.keys())[0]
         if self.dataset_name not in self.data:
-            raise ValueError(f"Dataset {self.dataset_name!r} not found in {self.data_path}")
+            raise ValueError(
+                f"Dataset {self.dataset_name!r} not found in {self.data_path}"
+            )
         self.name = f"lcbench_{self.dataset_name}"
         self.val_metric_tag = self._resolve_tag(val_metric_tag, preferred=True)
         self.test_metric_tag = self._resolve_tag(test_metric_tag, preferred=False)
         self._score_from_accuracy = "accuracy" in self.val_metric_tag.lower()
 
-        config_ids = sorted(self.data[self.dataset_name], key=lambda value: int(value))
+        config_ids = sorted(self.data[self.dataset_name], key=int)
         if limit_configs is not None:
             config_ids = config_ids[:limit_configs]
         self.config_ids = config_ids
-        self.candidate_configs = [self._config_with_id(config_id) for config_id in config_ids]
+        self.candidate_configs = [
+            self._config_with_id(config_id) for config_id in config_ids
+        ]
         self.search_space = self._build_search_space(self.candidate_configs)
         self.candidate_vectors = self.search_space.to_matrix(self.candidate_configs)
         self._meta_features = self._read_meta_features()
@@ -193,7 +198,7 @@ class LCBenchTask:
     def metric_name() -> str:
         return "validation loss"
 
-    def evaluate(self, config: dict[str, Any], seed: int = 0) -> EvalResult:
+    def evaluate(self, config: Config, seed: int = 0) -> EvalResult:
         del seed
         config_id = str(config.get("__config_id__", self._nearest_config_id(config)))
         val_curve_raw = self._query_curve(config_id, self.val_metric_tag)
@@ -216,12 +221,19 @@ class LCBenchTask:
         return self._meta_features.copy()
 
     def _resolve_tag(self, tag: str, preferred: bool) -> str:
-        first = self.data[self.dataset_name][sorted(self.data[self.dataset_name], key=int)[0]]
-        available = set(first.get("log", {})) | set(first.get("results", {}))
+        first = self.data[self.dataset_name][
+            sorted(self.data[self.dataset_name], key=int)[0]
+        ]
+        available = first.get("log", {}).keys() | first.get("results", {}).keys()
         if tag in available:
             return tag
         fallbacks = (
-            ["Train/val_accuracy", "final_val_accuracy", "Train/val_cross_entropy", "Train/val_loss"]
+            [
+                "Train/val_accuracy",
+                "final_val_accuracy",
+                "Train/val_cross_entropy",
+                "Train/val_loss",
+            ]
             if preferred
             else [
                 "final_test_accuracy",
@@ -236,19 +248,21 @@ class LCBenchTask:
         for fallback in fallbacks:
             if fallback in available:
                 return fallback
-        raise ValueError(f"None of the requested LCBench tags are available. Found: {sorted(available)}")
+        raise ValueError(
+            f"None of the requested LCBench tags are available. Found: {sorted(available)}"
+        )
 
     def _query_curve(self, config_id: str, tag: str) -> np.ndarray:
         item = self.data[self.dataset_name][config_id]
-        if tag in item.get("log", {}):
-            value = item["log"][tag]
-        elif tag in item.get("results", {}):
-            value = item["results"][tag]
-        else:
+        values = item.get("results", {}) | item.get("log", {})
+        if tag not in values:
             raise ValueError(f"Tag {tag!r} not found for config {config_id}")
+        value = values[tag]
         arr = np.asarray(value if isinstance(value, list) else [value], dtype=float)
         if arr.ndim != 1 or len(arr) == 0:
-            raise ValueError(f"Tag {tag!r} for config {config_id} is not a non-empty curve")
+            raise ValueError(
+                f"Tag {tag!r} for config {config_id} is not a non-empty curve"
+            )
         return arr
 
     def _to_minimized_curve(self, curve: np.ndarray) -> np.ndarray:
@@ -257,12 +271,12 @@ class LCBenchTask:
             return scale - curve
         return curve
 
-    def _config_with_id(self, config_id: str) -> dict[str, Any]:
+    def _config_with_id(self, config_id: str) -> Config:
         raw_config = dict(self.data[self.dataset_name][config_id]["config"])
         raw_config["__config_id__"] = int(config_id)
         return raw_config
 
-    def _build_search_space(self, configs: list[dict[str, Any]]) -> SearchSpace:
+    def _build_search_space(self, configs: list[Config]) -> SearchSpace:
         parameters: list[Parameter] = []
         keys = [key for key in configs[0] if key != "__config_id__"]
         for key in keys:
@@ -276,7 +290,9 @@ class LCBenchTask:
                 else:
                     parameters.append(Parameter(key, "float", low=low, high=high))
             else:
-                parameters.append(Parameter(key, "categorical", choices=tuple(sorted(set(values)))))
+                parameters.append(
+                    Parameter(key, "categorical", choices=tuple(sorted(set(values))))
+                )
         return SearchSpace(parameters)
 
     def _read_meta_features(self) -> np.ndarray:
@@ -284,15 +300,11 @@ class LCBenchTask:
         sources = [first.get("results", {}), first.get("config", {})]
         values = []
         for key in ("classes", "features", "instances"):
-            raw = 0.0
-            for source in sources:
-                if key in source:
-                    raw = source[key]
-                    break
+            raw = next((source[key] for source in sources if key in source), 0.0)
             values.append(float(np.log1p(float(raw))))
         return np.asarray(values, dtype=float)
 
-    def _nearest_config_id(self, config: dict[str, Any]) -> int:
+    def _nearest_config_id(self, config: Config) -> int:
         vector = self.search_space.to_vector(config)
         distances = np.linalg.norm(self.candidate_vectors - vector, axis=1)
         return int(self.candidate_configs[int(np.argmin(distances))]["__config_id__"])

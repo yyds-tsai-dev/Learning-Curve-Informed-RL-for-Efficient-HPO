@@ -5,10 +5,10 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+if (project_root := str(PROJECT_ROOT)) not in sys.path:
+    sys.path.insert(0, project_root)
 
-from hpo_baselines import (
+from hpo_baselines import (  # noqa: E402
     BaselineEvaluator,
     BayesianOptimization,
     HyperRLOptimizer,
@@ -46,7 +46,9 @@ def main() -> None:
 
     summary = evaluator.summarize(traces)
     print("Baseline Evaluation Summary")
-    print("task,method,runs,val_score_mean,val_score_std,test_score_mean,simple_regret_mean")
+    print(
+        "task,method,runs,val_score_mean,val_score_std,test_score_mean,simple_regret_mean"
+    )
     for row in summary:
         print(
             f"{row['task']},{row['method']},{row['runs']},"

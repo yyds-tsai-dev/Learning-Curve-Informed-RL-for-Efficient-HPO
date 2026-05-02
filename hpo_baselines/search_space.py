@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 
+type Config = dict[str, Any]
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, slots=True)
 class Parameter:
     name: str
     kind: str
@@ -53,19 +56,19 @@ class Parameter:
 
 class SearchSpace:
     def __init__(self, parameters: Iterable[Parameter]):
-        self.parameters = tuple(parameters)
+        self.parameters: tuple[Parameter, ...] = tuple(parameters)
 
-    def sample(self, rng: np.random.Generator) -> dict[str, Any]:
+    def sample(self, rng: np.random.Generator) -> Config:
         return {parameter.name: parameter.sample(rng) for parameter in self.parameters}
 
-    def sample_many(self, rng: np.random.Generator, n: int) -> list[dict[str, Any]]:
+    def sample_many(self, rng: np.random.Generator, n: int) -> list[Config]:
         return [self.sample(rng) for _ in range(n)]
 
-    def to_vector(self, config: dict[str, Any]) -> np.ndarray:
+    def to_vector(self, config: Config) -> np.ndarray:
         values: list[float] = []
         for parameter in self.parameters:
             values.extend(parameter.to_unit(config[parameter.name]))
         return np.asarray(values, dtype=float)
 
-    def to_matrix(self, configs: list[dict[str, Any]]) -> np.ndarray:
+    def to_matrix(self, configs: list[Config]) -> np.ndarray:
         return np.vstack([self.to_vector(config) for config in configs])

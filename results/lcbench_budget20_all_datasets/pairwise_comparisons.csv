@@ -1,0 +1,211 @@
+task,method_a,method_b,mean_delta_a_minus_b,std_delta,wins_a,wins_b,ties,runs
+lcbench_APSFailure,Bayesian Optimization,HyperRL-MLP,-0.2344696044921875,0.08588792657312798,5,0,0,5
+lcbench_APSFailure,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.26065521240234374,0.35073841837296915,4,1,0,5
+lcbench_APSFailure,Bayesian Optimization,Random Search,-0.19400329589843465,0.1634414586559403,4,1,0,5
+lcbench_APSFailure,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.02618560791015625,0.3908787785288431,3,2,0,5
+lcbench_APSFailure,HyperRL-MLP,Random Search,0.040466308593752845,0.09413005860573391,2,3,0,5
+lcbench_APSFailure,OurMethod-LC-DQN-MLP,Random Search,0.06665191650390909,0.4510065234896377,2,3,0,5
+lcbench_Amazon_employee_access,Bayesian Optimization,HyperRL-MLP,0.0,0.0,0,0,5,5
+lcbench_Amazon_employee_access,Bayesian Optimization,OurMethod-LC-DQN-MLP,0.0,0.0,0,0,5,5
+lcbench_Amazon_employee_access,Bayesian Optimization,Random Search,0.0,0.0,0,0,5,5
+lcbench_Amazon_employee_access,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.0,0.0,0,0,5,5
+lcbench_Amazon_employee_access,HyperRL-MLP,Random Search,0.0,0.0,0,0,5,5
+lcbench_Amazon_employee_access,OurMethod-LC-DQN-MLP,Random Search,0.0,0.0,0,0,5,5
+lcbench_Australian,Bayesian Optimization,HyperRL-MLP,-0.39215698242187214,0.9912258507400535,2,1,2,5
+lcbench_Australian,Bayesian Optimization,OurMethod-LC-DQN-MLP,0.0,0.4621614359335925,1,1,3,5
+lcbench_Australian,Bayesian Optimization,Random Search,2.842170943040401e-15,0.4621614359336076,1,1,3,5
+lcbench_Australian,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.39215698242187214,0.8768896705464962,0,1,4,5
+lcbench_Australian,HyperRL-MLP,Random Search,0.392156982421875,1.3553233778815268,2,2,1,5
+lcbench_Australian,OurMethod-LC-DQN-MLP,Random Search,2.842170943040401e-15,0.6535949707031214,2,2,1,5
+lcbench_Fashion-MNIST,Bayesian Optimization,HyperRL-MLP,-0.27652130126953123,2.808672734698371,3,2,0,5
+lcbench_Fashion-MNIST,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.9872085571289062,3.5132887145473517,3,2,0,5
+lcbench_Fashion-MNIST,Bayesian Optimization,Random Search,-0.436749267578125,3.2689243111120194,3,2,0,5
+lcbench_Fashion-MNIST,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.710687255859375,1.3697493500564317,2,0,3,5
+lcbench_Fashion-MNIST,HyperRL-MLP,Random Search,-0.16022796630859376,2.0175212884991116,1,1,3,5
+lcbench_Fashion-MNIST,OurMethod-LC-DQN-MLP,Random Search,0.5504592895507813,1.2857228854769718,1,1,3,5
+lcbench_KDDCup09_appetency,Bayesian Optimization,HyperRL-MLP,0.0,0.0,0,0,5,5
+lcbench_KDDCup09_appetency,Bayesian Optimization,OurMethod-LC-DQN-MLP,0.0,0.0,0,0,5,5
+lcbench_KDDCup09_appetency,Bayesian Optimization,Random Search,0.0,0.0,0,0,5,5
+lcbench_KDDCup09_appetency,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.0,0.0,0,0,5,5
+lcbench_KDDCup09_appetency,HyperRL-MLP,Random Search,0.0,0.0,0,0,5,5
+lcbench_KDDCup09_appetency,OurMethod-LC-DQN-MLP,Random Search,0.0,0.0,0,0,5,5
+lcbench_MiniBooNE,Bayesian Optimization,HyperRL-MLP,-0.93751220703125,1.0045776067132666,4,1,0,5
+lcbench_MiniBooNE,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.33313751220703125,1.807394450596656,2,3,0,5
+lcbench_MiniBooNE,Bayesian Optimization,Random Search,-1.3582794189453125,1.0922917589645442,4,1,0,5
+lcbench_MiniBooNE,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.6043746948242188,1.3852082084366384,1,2,2,5
+lcbench_MiniBooNE,HyperRL-MLP,Random Search,-0.4207672119140625,1.0877893153055502,2,1,2,5
+lcbench_MiniBooNE,OurMethod-LC-DQN-MLP,Random Search,-1.0251419067382812,2.247846921288316,2,1,2,5
+lcbench_adult,Bayesian Optimization,HyperRL-MLP,-0.5037063598632813,1.127477659790899,3,2,0,5
+lcbench_adult,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.37222442626953123,0.9281799018883539,3,2,0,5
+lcbench_adult,Bayesian Optimization,Random Search,-0.49074249267578124,1.3038976923381647,2,2,1,5
+lcbench_adult,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.13148193359375,0.41503864108092287,1,2,2,5
+lcbench_adult,HyperRL-MLP,Random Search,0.0129638671875,0.26912541797431583,1,2,2,5
+lcbench_adult,OurMethod-LC-DQN-MLP,Random Search,-0.11851806640625,0.6573243380770535,2,1,2,5
+lcbench_airlines,Bayesian Optimization,HyperRL-MLP,-0.7915618896484418,1.5778214401731419,3,2,0,5
+lcbench_airlines,Bayesian Optimization,OurMethod-LC-DQN-MLP,-1.2405044555664104,1.207029391869584,4,1,0,5
+lcbench_airlines,Bayesian Optimization,Random Search,-1.1665466308593806,1.0596580091688723,4,0,1,5
+lcbench_airlines,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.44894256591796877,0.6104959496457654,3,1,1,5
+lcbench_airlines,HyperRL-MLP,Random Search,-0.37498474121093894,0.5645843040723834,2,1,2,5
+lcbench_airlines,OurMethod-LC-DQN-MLP,Random Search,0.07395782470702983,0.2599521808620293,2,2,1,5
+lcbench_albert,Bayesian Optimization,HyperRL-MLP,0.17719345092773722,1.2783541381676309,2,3,0,5
+lcbench_albert,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.22335433959960796,1.161648282814591,3,2,0,5
+lcbench_albert,Bayesian Optimization,Random Search,0.021272277832034094,0.939581029307492,3,2,0,5
+lcbench_albert,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.4005477905273452,0.8586853839436533,2,0,3,5
+lcbench_albert,HyperRL-MLP,Random Search,-0.15592117309570314,1.2594977780953036,1,2,2,5
+lcbench_albert,OurMethod-LC-DQN-MLP,Random Search,0.24462661743164205,0.584722637376802,1,2,2,5
+lcbench_bank-marketing,Bayesian Optimization,HyperRL-MLP,1.6524948120117187,3.228983129148669,1,4,0,5
+lcbench_bank-marketing,Bayesian Optimization,OurMethod-LC-DQN-MLP,1.4364303588867187,3.6041120880918815,1,4,0,5
+lcbench_bank-marketing,Bayesian Optimization,Random Search,3.002899169921875,2.4791543192792704,0,5,0,5
+lcbench_bank-marketing,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.216064453125,0.48313480470881687,1,0,4,5
+lcbench_bank-marketing,HyperRL-MLP,Random Search,1.3504043579101563,1.6379137962064347,0,3,2,5
+lcbench_bank-marketing,OurMethod-LC-DQN-MLP,Random Search,1.5664688110351563,1.9747328516411653,0,3,2,5
+lcbench_blood-transfusion-service-center,Bayesian Optimization,HyperRL-MLP,6.506024169921875,10.58425527665176,1,3,1,5
+lcbench_blood-transfusion-service-center,Bayesian Optimization,OurMethod-LC-DQN-MLP,7.831324768066406,7.451395844569592,0,3,2,5
+lcbench_blood-transfusion-service-center,Bayesian Optimization,Random Search,2.0481918334960993,9.052195768672266,1,3,1,5
+lcbench_blood-transfusion-service-center,HyperRL-MLP,OurMethod-LC-DQN-MLP,1.3253005981445312,4.536111567168277,1,2,2,5
+lcbench_blood-transfusion-service-center,HyperRL-MLP,Random Search,-4.457832336425776,5.347553730799779,3,0,2,5
+lcbench_blood-transfusion-service-center,OurMethod-LC-DQN-MLP,Random Search,-5.783132934570307,5.59625370131057,3,0,2,5
+lcbench_car,Bayesian Optimization,HyperRL-MLP,-0.7310714721679688,6.837043513214856,3,2,0,5
+lcbench_car,Bayesian Optimization,OurMethod-LC-DQN-MLP,1.6710189819335937,4.9971190610234615,1,4,0,5
+lcbench_car,Bayesian Optimization,Random Search,0.10443878173828125,7.137543261861828,2,3,0,5
+lcbench_car,HyperRL-MLP,OurMethod-LC-DQN-MLP,2.4020904541015624,2.513861842895956,0,3,2,5
+lcbench_car,HyperRL-MLP,Random Search,0.83551025390625,2.1719751550483424,1,1,3,5
+lcbench_car,OurMethod-LC-DQN-MLP,Random Search,-1.5665802001953124,3.072744271524351,2,1,2,5
+lcbench_christine,Bayesian Optimization,HyperRL-MLP,0.16694488525390624,0.7940868095914122,1,4,0,5
+lcbench_christine,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.1836395263671875,0.3411158353702822,2,2,1,5
+lcbench_christine,Bayesian Optimization,Random Search,0.45075225830078125,0.692368178144021,0,4,1,5
+lcbench_christine,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.35058441162109377,0.684270007734831,3,1,1,5
+lcbench_christine,HyperRL-MLP,Random Search,0.283807373046875,0.7456668849114148,1,2,2,5
+lcbench_christine,OurMethod-LC-DQN-MLP,Random Search,0.6343917846679688,0.6094049877296447,0,4,1,5
+lcbench_cnae-9,Bayesian Optimization,HyperRL-MLP,0.33472900390625,0.9070895860205985,2,2,1,5
+lcbench_cnae-9,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.33472900390625,1.9265051219213498,2,2,1,5
+lcbench_cnae-9,Bayesian Optimization,Random Search,0.167364501953125,1.0910786750739982,2,2,1,5
+lcbench_cnae-9,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.6694580078125,1.3428281374475388,2,1,2,5
+lcbench_cnae-9,HyperRL-MLP,Random Search,-0.167364501953125,0.4770622304022745,2,1,2,5
+lcbench_cnae-9,OurMethod-LC-DQN-MLP,Random Search,0.502093505859375,1.6312624889140543,1,1,3,5
+lcbench_connect-4,Bayesian Optimization,HyperRL-MLP,2.4755645751953126,6.066510160880963,1,2,2,5
+lcbench_connect-4,Bayesian Optimization,OurMethod-LC-DQN-MLP,2.4755645751953126,6.066510160880963,1,2,2,5
+lcbench_connect-4,Bayesian Optimization,Random Search,2.4755645751953126,6.066510160880963,1,2,2,5
+lcbench_connect-4,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.0,0.0,0,0,5,5
+lcbench_connect-4,HyperRL-MLP,Random Search,0.0,0.0,0,0,5,5
+lcbench_connect-4,OurMethod-LC-DQN-MLP,Random Search,0.0,0.0,0,0,5,5
+lcbench_covertype,Bayesian Optimization,HyperRL-MLP,-2.0619300842285155,8.847309246725233,3,2,0,5
+lcbench_covertype,Bayesian Optimization,OurMethod-LC-DQN-MLP,-1.1209533691406222,8.485408365240257,2,2,1,5
+lcbench_covertype,Bayesian Optimization,Random Search,-2.5288391113281223,9.666160876907039,3,2,0,5
+lcbench_covertype,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.9409767150878935,4.042593764958058,1,2,2,5
+lcbench_covertype,HyperRL-MLP,Random Search,-0.4669090270996065,1.8008656928796174,2,1,2,5
+lcbench_covertype,OurMethod-LC-DQN-MLP,Random Search,-1.4078857421875,3.359382724443798,2,1,2,5
+lcbench_credit-g,Bayesian Optimization,HyperRL-MLP,0.6306320190429687,1.7329176152488783,1,2,2,5
+lcbench_credit-g,Bayesian Optimization,OurMethod-LC-DQN-MLP,0.810809326171875,1.8407915527781087,1,4,0,5
+lcbench_credit-g,Bayesian Optimization,Random Search,0.9909896850585938,1.8951048258347598,1,3,1,5
+lcbench_credit-g,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.18017730712890626,1.0370131911408451,2,2,1,5
+lcbench_credit-g,HyperRL-MLP,Random Search,0.360357666015625,1.328637065441491,2,1,2,5
+lcbench_credit-g,OurMethod-LC-DQN-MLP,Random Search,0.18018035888671874,1.4456555201569925,1,2,2,5
+lcbench_dionis,Bayesian Optimization,HyperRL-MLP,0.10128233432769777,0.1147851356148551,1,3,1,5
+lcbench_dionis,Bayesian Optimization,OurMethod-LC-DQN-MLP,0.014344704151153586,0.17675062987538917,1,2,2,5
+lcbench_dionis,Bayesian Optimization,Random Search,-0.031514883041381836,0.05803533152345348,2,0,3,5
+lcbench_dionis,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.08693763017654418,0.17130930848692147,2,2,1,5
+lcbench_dionis,HyperRL-MLP,Random Search,-0.13279721736907962,0.15257374183141262,3,1,1,5
+lcbench_dionis,OurMethod-LC-DQN-MLP,Random Search,-0.045859587192535425,0.22287754832853482,2,1,2,5
+lcbench_fabert,Bayesian Optimization,HyperRL-MLP,-0.7358642578124972,0.41387093691050586,5,0,0,5
+lcbench_fabert,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.38440704345703125,0.32719282415843515,5,0,0,5
+lcbench_fabert,Bayesian Optimization,Random Search,-0.6479980468749972,0.6983060828939608,5,0,0,5
+lcbench_fabert,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.3514572143554659,0.22171013113388904,0,4,1,5
+lcbench_fabert,HyperRL-MLP,Random Search,0.0878662109375,0.6340226449911681,1,4,0,5
+lcbench_fabert,OurMethod-LC-DQN-MLP,Random Search,-0.26359100341796593,0.6420578287441642,2,2,1,5
+lcbench_helena,Bayesian Optimization,HyperRL-MLP,12.923829627037048,33.523257030030194,3,2,0,5
+lcbench_helena,Bayesian Optimization,OurMethod-LC-DQN-MLP,28.76267786026001,41.955943892192714,3,2,0,5
+lcbench_helena,Bayesian Optimization,Random Search,12.679639673233032,32.920525015226296,4,1,0,5
+lcbench_helena,HyperRL-MLP,OurMethod-LC-DQN-MLP,15.838848233222961,33.96662973684274,2,2,1,5
+lcbench_helena,HyperRL-MLP,Random Search,-0.24418995380401612,56.006556597670915,2,2,1,5
+lcbench_helena,OurMethod-LC-DQN-MLP,Random Search,-16.08303818702698,64.95426959047532,2,2,1,5
+lcbench_higgs,Bayesian Optimization,HyperRL-MLP,0.6577491760253935,4.869312278299048,3,2,0,5
+lcbench_higgs,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.532288360595706,5.842450434726692,3,2,0,5
+lcbench_higgs,Bayesian Optimization,Random Search,-0.07841186523438068,6.028330488116975,3,2,0,5
+lcbench_higgs,HyperRL-MLP,OurMethod-LC-DQN-MLP,-1.1900375366210993,1.7342777982401434,2,0,3,5
+lcbench_higgs,HyperRL-MLP,Random Search,-0.7361610412597741,1.7460261137869917,2,1,2,5
+lcbench_higgs,OurMethod-LC-DQN-MLP,Random Search,0.4538764953613253,1.8156724741725545,1,2,2,5
+lcbench_jannis,Bayesian Optimization,HyperRL-MLP,-1.397861480712892,2.957675398651961,4,1,0,5
+lcbench_jannis,Bayesian Optimization,OurMethod-LC-DQN-MLP,-1.6538833618164048,3.246217916193624,4,1,0,5
+lcbench_jannis,Bayesian Optimization,Random Search,-0.9722373962402358,3.5325447286831624,3,2,0,5
+lcbench_jannis,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.25602188110351276,1.141631805266723,2,1,2,5
+lcbench_jannis,HyperRL-MLP,Random Search,0.42562408447265626,2.0640149534719705,2,1,2,5
+lcbench_jannis,OurMethod-LC-DQN-MLP,Random Search,0.6816459655761691,1.5358957201473928,1,2,2,5
+lcbench_jasmine,Bayesian Optimization,HyperRL-MLP,-0.36308746337890624,0.48553156904482025,3,1,1,5
+lcbench_jasmine,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.06051483154296875,0.4487867873050469,2,2,1,5
+lcbench_jasmine,Bayesian Optimization,Random Search,-0.03025665283203125,0.1265726598063979,2,1,2,5
+lcbench_jasmine,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.3025726318359375,0.7095960457464884,1,3,1,5
+lcbench_jasmine,HyperRL-MLP,Random Search,0.332830810546875,0.44623057472045585,0,3,2,5
+lcbench_jasmine,OurMethod-LC-DQN-MLP,Random Search,0.0302581787109375,0.48316824129938696,1,1,3,5
+lcbench_jungle_chess_2pcs_raw_endgame_complete,Bayesian Optimization,HyperRL-MLP,-1.2371368408203125,10.767296579678268,3,2,0,5
+lcbench_jungle_chess_2pcs_raw_endgame_complete,Bayesian Optimization,OurMethod-LC-DQN-MLP,-2.1332000732421874,11.949942684085572,2,3,0,5
+lcbench_jungle_chess_2pcs_raw_endgame_complete,Bayesian Optimization,Random Search,-0.7124130249023437,11.83097565151221,2,3,0,5
+lcbench_jungle_chess_2pcs_raw_endgame_complete,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.896063232421875,1.4870082088817063,2,1,2,5
+lcbench_jungle_chess_2pcs_raw_endgame_complete,HyperRL-MLP,Random Search,0.5247238159179688,3.8964671077336708,1,2,2,5
+lcbench_jungle_chess_2pcs_raw_endgame_complete,OurMethod-LC-DQN-MLP,Random Search,1.4207870483398437,3.8861260299348546,1,2,2,5
+lcbench_kc1,Bayesian Optimization,HyperRL-MLP,-0.38543701171875,5.133381641378119,3,1,1,5
+lcbench_kc1,Bayesian Optimization,OurMethod-LC-DQN-MLP,1.84154052734375,4.408223165810029,2,3,0,5
+lcbench_kc1,Bayesian Optimization,Random Search,0.556744384765625,2.243797750261132,2,2,1,5
+lcbench_kc1,HyperRL-MLP,OurMethod-LC-DQN-MLP,2.2269775390625,2.6685108718038686,1,3,1,5
+lcbench_kc1,HyperRL-MLP,Random Search,0.942181396484375,5.032345228554342,1,4,0,5
+lcbench_kc1,OurMethod-LC-DQN-MLP,Random Search,-1.284796142578125,3.7457943009042487,3,1,1,5
+lcbench_kr-vs-kp,Bayesian Optimization,HyperRL-MLP,-0.3111694335937557,1.6108320369915001,1,3,1,5
+lcbench_kr-vs-kp,Bayesian Optimization,OurMethod-LC-DQN-MLP,0.9618148803710881,1.2507864986517179,0,5,0,5
+lcbench_kr-vs-kp,Bayesian Optimization,Random Search,0.056581115722650566,1.420075565738414,2,3,0,5
+lcbench_kr-vs-kp,HyperRL-MLP,OurMethod-LC-DQN-MLP,1.2729843139648438,1.7438227263738828,0,2,3,5
+lcbench_kr-vs-kp,HyperRL-MLP,Random Search,0.36775054931640627,1.6238230264906899,1,2,2,5
+lcbench_kr-vs-kp,OurMethod-LC-DQN-MLP,Random Search,-0.9052337646484375,0.8753473961381025,3,0,2,5
+lcbench_mfeat-factors,Bayesian Optimization,HyperRL-MLP,-0.18058471679687785,1.0393551101207266,3,2,0,5
+lcbench_mfeat-factors,Bayesian Optimization,OurMethod-LC-DQN-MLP,0.13544158935546874,0.9656544003614601,2,3,0,5
+lcbench_mfeat-factors,Bayesian Optimization,Random Search,-0.0451446533203125,1.075496441400706,2,3,0,5
+lcbench_mfeat-factors,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.3160263061523466,0.8076080414578239,1,2,2,5
+lcbench_mfeat-factors,HyperRL-MLP,Random Search,0.13544006347656534,0.3028531888104866,0,1,4,5
+lcbench_mfeat-factors,OurMethod-LC-DQN-MLP,Random Search,-0.18058624267578124,0.7383933287051964,2,1,2,5
+lcbench_nomao,Bayesian Optimization,HyperRL-MLP,-0.11022186279297444,1.0267444872793086,2,3,0,5
+lcbench_nomao,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.4120193481445426,1.0754368529034022,3,2,0,5
+lcbench_nomao,Bayesian Optimization,Random Search,-0.27293090820313354,0.931979142975476,3,2,0,5
+lcbench_nomao,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.3017974853515682,0.39572083465143354,3,0,2,5
+lcbench_nomao,HyperRL-MLP,Random Search,-0.1627090454101591,0.5766496575507718,1,2,2,5
+lcbench_nomao,OurMethod-LC-DQN-MLP,Random Search,0.1390884399414091,0.31294429577101324,1,2,2,5
+lcbench_numerai28.6,Bayesian Optimization,HyperRL-MLP,-0.10142288208007813,0.1333320248759296,3,2,0,5
+lcbench_numerai28.6,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.12583923339843892,0.17463272286939027,3,2,0,5
+lcbench_numerai28.6,Bayesian Optimization,Random Search,-0.05728530883789205,0.06475750248980494,3,0,2,5
+lcbench_numerai28.6,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.024416351318360795,0.08991618889358602,1,3,1,5
+lcbench_numerai28.6,HyperRL-MLP,Random Search,0.044137573242186076,0.1624414242183926,2,3,0,5
+lcbench_numerai28.6,OurMethod-LC-DQN-MLP,Random Search,0.06855392456054688,0.17013071731299617,2,3,0,5
+lcbench_phoneme,Bayesian Optimization,HyperRL-MLP,1.0041824340820313,2.410854787120028,1,4,0,5
+lcbench_phoneme,Bayesian Optimization,OurMethod-LC-DQN-MLP,0.7698745727539062,2.001731365041578,1,4,0,5
+lcbench_phoneme,Bayesian Optimization,Random Search,0.535565185546875,1.6361926174826582,1,4,0,5
+lcbench_phoneme,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.234307861328125,0.9855300317581878,1,2,2,5
+lcbench_phoneme,HyperRL-MLP,Random Search,-0.46861724853515624,0.8546202983800737,2,1,2,5
+lcbench_phoneme,OurMethod-LC-DQN-MLP,Random Search,-0.23430938720703126,0.963977068190827,1,2,2,5
+lcbench_segment,Bayesian Optimization,HyperRL-MLP,0.9001937866210937,4.007202985006496,2,3,0,5
+lcbench_segment,Bayesian Optimization,OurMethod-LC-DQN-MLP,1.6046951293945313,2.827093397961134,3,2,0,5
+lcbench_segment,Bayesian Optimization,Random Search,2.1917800903320312,3.249355116888945,1,4,0,5
+lcbench_segment,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.7045013427734375,2.041238314787987,1,2,2,5
+lcbench_segment,HyperRL-MLP,Random Search,1.2915863037109374,1.9841576068534972,0,3,2,5
+lcbench_segment,OurMethod-LC-DQN-MLP,Random Search,0.5870849609375,2.2905478266440253,1,2,2,5
+lcbench_shuttle,Bayesian Optimization,HyperRL-MLP,0.386773681640625,1.8595429879336953,3,2,0,5
+lcbench_shuttle,Bayesian Optimization,OurMethod-LC-DQN-MLP,0.45383605957030965,1.908939792860019,2,3,0,5
+lcbench_shuttle,Bayesian Optimization,Random Search,0.32439117431641196,1.830748394466449,3,2,0,5
+lcbench_shuttle,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.06706237792968466,0.35446303499134024,2,1,2,5
+lcbench_shuttle,HyperRL-MLP,Random Search,-0.06238250732421306,0.3586594963806183,1,2,2,5
+lcbench_shuttle,OurMethod-LC-DQN-MLP,Random Search,-0.12944488525389772,0.7012350957761536,1,2,2,5
+lcbench_sylvine,Bayesian Optimization,HyperRL-MLP,-0.529100036621091,1.5860766216669628,4,1,0,5
+lcbench_sylvine,Bayesian Optimization,OurMethod-LC-DQN-MLP,-0.12345733642577557,1.125160391306437,4,1,0,5
+lcbench_sylvine,Bayesian Optimization,Random Search,-0.7583770751953125,0.5050394058472019,5,0,0,5
+lcbench_sylvine,HyperRL-MLP,OurMethod-LC-DQN-MLP,0.40564270019531534,1.066618858859833,2,2,1,5
+lcbench_sylvine,HyperRL-MLP,Random Search,-0.2292770385742216,1.3584235775124094,3,2,0,5
+lcbench_sylvine,OurMethod-LC-DQN-MLP,Random Search,-0.6349197387695369,0.7748097743746265,4,0,1,5
+lcbench_vehicle,Bayesian Optimization,HyperRL-MLP,-0.9574478149414063,6.529783517562423,2,3,0,5
+lcbench_vehicle,Bayesian Optimization,OurMethod-LC-DQN-MLP,-1.1702117919921875,4.424815720110645,2,3,0,5
+lcbench_vehicle,Bayesian Optimization,Random Search,-1.382977294921875,5.954120859085345,1,3,1,5
+lcbench_vehicle,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.21276397705078126,4.164590544617854,2,1,2,5
+lcbench_vehicle,HyperRL-MLP,Random Search,-0.42552947998046875,4.7783583885884005,2,1,2,5
+lcbench_vehicle,OurMethod-LC-DQN-MLP,Random Search,-0.2127655029296875,6.024976093311997,1,1,3,5
+lcbench_volkert,Bayesian Optimization,HyperRL-MLP,0.9307380676269574,6.876201273200525,3,2,0,5
+lcbench_volkert,Bayesian Optimization,OurMethod-LC-DQN-MLP,0.3242073059082074,7.01734451246234,3,2,0,5
+lcbench_volkert,Bayesian Optimization,Random Search,1.4007606506347698,6.357951217753646,2,3,0,5
+lcbench_volkert,HyperRL-MLP,OurMethod-LC-DQN-MLP,-0.60653076171875,2.0337842568231146,1,1,3,5
+lcbench_volkert,HyperRL-MLP,Random Search,0.4700225830078125,2.0712939658642564,1,2,2,5
+lcbench_volkert,OurMethod-LC-DQN-MLP,Random Search,1.0765533447265625,1.0015557247763625,0,3,2,5

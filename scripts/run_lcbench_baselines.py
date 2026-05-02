@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+if (project_root := str(PROJECT_ROOT)) not in sys.path:
+    sys.path.insert(0, project_root)
 
 from hpo_baselines import (  # noqa: E402
     BaselineEvaluator,
@@ -27,26 +27,47 @@ def main() -> None:
         default=PROJECT_ROOT / "data" / "tiny_lcbench.json",
         help="Path to the official LCBench JSON file or the tiny fixture.",
     )
-    parser.add_argument("--dataset", type=str, default=None, help="Single LCBench dataset name.")
+    parser.add_argument(
+        "--dataset", type=str, default=None, help="Single LCBench dataset name."
+    )
     parser.add_argument(
         "--datasets",
         type=str,
         default=None,
-        help="Comma-separated LCBench dataset names. Overrides --dataset.",
+        help=(
+            "Comma-separated LCBench dataset names, or 'all' for all datasets. "
+            "Overrides --dataset."
+        ),
     )
-    parser.add_argument("--budget", type=int, default=4, help="HPO evaluations per method/seed.")
-    parser.add_argument("--seeds", type=int, default=3, help="Number of repeated random seeds.")
-    parser.add_argument("--limit-configs", type=int, default=None, help="Optional cap for fast debugging.")
-    parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "results" / "lcbench")
+    parser.add_argument(
+        "--budget", type=int, default=4, help="HPO evaluations per method/seed."
+    )
+    parser.add_argument(
+        "--seeds", type=int, default=3, help="Number of repeated random seeds."
+    )
+    parser.add_argument(
+        "--limit-configs",
+        type=int,
+        default=None,
+        help="Optional cap for fast debugging.",
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, default=PROJECT_ROOT / "results" / "lcbench"
+    )
     args = parser.parse_args()
 
-    with args.data_path.open(encoding="utf-8") as handle:
-        data = json.load(handle)
-    dataset_names = (
-        [name.strip() for name in args.datasets.split(",") if name.strip()]
-        if args.datasets
-        else [args.dataset]
-    )
+    data = json.loads(args.data_path.read_text(encoding="utf-8"))
+    if args.datasets:
+        if args.datasets.strip().lower() == "all":
+            dataset_names = sorted(data.keys())
+        else:
+            dataset_names = [
+                name.strip() for name in args.datasets.split(",") if name.strip()
+            ]
+    elif args.dataset:
+        dataset_names = [args.dataset]
+    else:
+        dataset_names = sorted(data.keys())
     tasks = [
         LCBenchTask(
             data_path=args.data_path,
@@ -77,14 +98,18 @@ def main() -> None:
     evaluator.save(traces, args.output_dir)
 
     print("LCBench Baseline Evaluation Summary")
-    print("task,method,runs,val_score_mean,val_score_std,test_score_mean,simple_regret_mean")
+    print(
+        "task,method,runs,val_score_mean,val_score_std,test_score_mean,simple_regret_mean"
+    )
     for row in evaluator.summarize(traces):
         print(
             f"{row['task']},{row['method']},{row['runs']},"
             f"{row['best_val_score_mean']:.4f},{row['best_val_score_std']:.4f},"
             f"{row['best_test_score_mean']:.4f},{row['simple_regret_mean']:.4f}"
         )
-    print(f"\nSaved traces, summary, pairwise comparisons, and conclusion to {args.output_dir}")
+    print(
+        f"\nSaved traces, summary, pairwise comparisons, and conclusion to {args.output_dir}"
+    )
 
 
 if __name__ == "__main__":
