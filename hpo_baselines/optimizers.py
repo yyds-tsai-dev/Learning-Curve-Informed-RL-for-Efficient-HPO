@@ -206,15 +206,15 @@ class BayesianOptimization(BaseOptimizer):
 
 @dataclass(slots=True)
 class HyperRLOptimizer(BaseOptimizer):
-    """Hyp-RL-style DQN with the paper/repo state, using an MLP instead of LSTM.
+    """Hyp-RL-style DQN with the paper/repo state.
 
     The original implementation uses a DQN controller over a finite
     hyperparameter grid, replay buffer, epsilon-greedy exploration, and a target
-    network. Its recurrent LSTM state encoder is replaced here by a padded
-    history vector consumed by an MLP.
+    network. This implementation keeps the padded history state representation
+    and supports either an MLP or an LSTM Q-network.
     """
 
-    name = "HyperRL-MLP"
+    name = "HyperRL-DQN"
     hidden_sizes: tuple[int, ...] = (128, 128)
     learning_rate: float = 1e-3
     gamma: float = 0.99
@@ -225,6 +225,7 @@ class HyperRLOptimizer(BaseOptimizer):
     epsilon_start: float = 1.0
     epsilon_end: float = 0.05
     reward_mode: str = "improvement"
+    network_type: str = "lstm"
 
     def optimize(self, task: HPOTask, budget: int, seed: int) -> OptimizationTrace:
         controller = _DQNController(
@@ -240,14 +241,15 @@ class HyperRLOptimizer(BaseOptimizer):
             epsilon_start=self.epsilon_start,
             epsilon_end=self.epsilon_end,
             reward_mode=self.reward_mode,
+            network_type=self.network_type,
         )
         return controller.optimize(task, budget, seed)
 
 
 class LearningCurveDQNOptimizer(HyperRLOptimizer):
-    """Our method: Hyp-RL-MLP plus learning-curve value and derivative features."""
+    """Our method: Hyp-RL plus learning-curve value and derivative features."""
 
-    name = "OurMethod-LC-DQN-MLP"
+    name = "OurMethod-LC-DQN"
 
     def optimize(self, task: HPOTask, budget: int, seed: int) -> OptimizationTrace:
         controller = _DQNController(
@@ -263,6 +265,7 @@ class LearningCurveDQNOptimizer(HyperRLOptimizer):
             epsilon_start=self.epsilon_start,
             epsilon_end=self.epsilon_end,
             reward_mode=self.reward_mode,
+            network_type=self.network_type,
         )
         return controller.optimize(task, budget, seed)
 
@@ -305,10 +308,13 @@ class _DQNController:
     epsilon_start: float
     epsilon_end: float
     reward_mode: str
+    network_type: str
 
     def __post_init__(self) -> None:
         if self.reward_mode not in {"raw", "improvement"}:
             raise ValueError("reward_mode must be 'raw' or 'improvement'")
+        if self.network_type not in {"mlp", "lstm"}:
+            raise ValueError("network_type must be 'mlp' or 'lstm'")
 
     def optimize(self, task: HPOTask, budget: int, seed: int) -> OptimizationTrace:
         rng = np.random.default_rng(seed)
@@ -328,8 +334,8 @@ class _DQNController:
         state_dim = budget * row_dim
         n_actions = len(candidates)
 
-        online = _MLPQNetwork(state_dim, n_actions, self.hidden_sizes)
-        target = _MLPQNetwork(state_dim, n_actions, self.hidden_sizes)
+        online = self._build_q_network(state_dim, row_dim, budget, n_actions)
+        target = self._build_q_network(state_dim, row_dim, budget, n_actions)
         target.load_state_dict(online.state_dict())
         optimizer = optim.Adam(online.parameters(), lr=self.learning_rate)
         replay = _ReplayBuffer(self.replay_size)
@@ -395,6 +401,18 @@ class _DQNController:
             )
 
         return OptimizationTrace(self.method_name, task.name, seed, evaluations)
+
+    def _build_q_network(
+        self, state_dim: int, row_dim: int, seq_len: int, n_actions: int
+    ) -> nn.Module:
+        if self.network_type == "lstm":
+            return _LSTMQNetwork(
+                row_dim=row_dim,
+                seq_len=seq_len,
+                output_dim=n_actions,
+                hidden_sizes=self.hidden_sizes,
+            )
+        return _MLPQNetwork(state_dim, n_actions, self.hidden_sizes)
 
     def _select_action(
         self,
@@ -471,6 +489,58 @@ class _MLPQNetwork:
             current = hidden
         layers.append(nn.Linear(current, output_dim))
         return nn.Sequential(*layers)
+
+
+class _LSTMQNetwork(nn.Module):
+    def __init__(
+        self,
+        row_dim: int,
+        seq_len: int,
+        output_dim: int,
+        hidden_sizes: tuple[int, ...],
+    ) -> None:
+        super().__init__()
+        lstm_hidden = hidden_sizes[0] if hidden_sizes else 128
+        self.row_dim = row_dim
+        self.seq_len = seq_len
+        self.lstm = nn.LSTM(
+            input_size=row_dim,
+            hidden_size=lstm_hidden,
+            batch_first=True,
+        )
+
+        layers: list[nn.Module] = []
+        current = lstm_hidden
+        for hidden in hidden_sizes[1:]:
+            layers.append(nn.Linear(current, hidden))
+            layers.append(nn.ReLU())
+            current = hidden
+        layers.append(nn.Linear(current, output_dim))
+        self.head = nn.Sequential(*layers)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        if inputs.ndim == 2:
+            x = inputs.reshape(inputs.shape[0], self.seq_len, self.row_dim)
+        elif inputs.ndim == 3:
+            x = inputs
+        else:
+            raise ValueError(
+                "inputs must have shape [batch, state_dim] or [batch, seq, row]"
+            )
+
+        # Infer effective sequence lengths from non-zero rows to avoid learning
+        # from trailing padding when history is shorter than the budget.
+        row_energy = x.abs().sum(dim=2)
+        lengths = torch.clamp((row_energy > 0).sum(dim=1), min=1).to(torch.int64)
+        packed = nn.utils.rnn.pack_padded_sequence(
+            x,
+            lengths.cpu(),
+            batch_first=True,
+            enforce_sorted=False,
+        )
+        _, (hidden, _) = self.lstm(packed)
+        features = hidden[-1]
+        return self.head(features)
 
 
 def _candidate_configs(task: HPOTask) -> CandidateConfigs | None:

@@ -36,10 +36,10 @@ Implemented methods:
 
 - `Random Search`
 - `Bayesian Optimization`
-- `HyperRL-MLP`: DQN with replay buffer and target network, matching the Hyp-RL setup but replacing
-  the LSTM encoder with a padded-history MLP
-- `OurMethod-LC-DQN-MLP`: the same DQN-MLP controller with learning-curve and derivative features
-  appended to the state
+- `HyperRL-DQN`: DQN with replay buffer and target network, matching the Hyp-RL setup with a
+  configurable sequence encoder (`lstm` or `mlp`, default `lstm`)
+- `OurMethod-LC-DQN`: the same DQN controller with learning-curve and derivative features appended
+  to the state
 
 Outputs are written to `results/lcbench/`:
 

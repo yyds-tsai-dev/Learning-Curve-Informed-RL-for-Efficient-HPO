@@ -286,9 +286,9 @@ class BaselineEvaluator:
             f"Across the selected tasks, **{winner['method']}** gives the best average simple regret "
             f"({winner['avg_simple_regret']:.4f}). "
             "Random Search is the sanity-check lower bound, Bayesian Optimization tests "
-            "sample-efficient surrogate modeling, HyperRL-MLP tests the paper-style DQN setup "
-            "with an MLP encoder, and OurMethod-LC-DQN-MLP adds learning-curve and derivative "
-            "state features."
+            "sample-efficient surrogate modeling, HyperRL-DQN tests the paper-style DQN setup "
+            "with a configurable sequence encoder (default: LSTM), and OurMethod-LC-DQN adds "
+            "learning-curve and derivative state features."
         )
         return "\n".join(lines) + "\n"
 
