@@ -804,9 +804,7 @@ class _CrossDatasetDQNController:
             if configs is None:
                 # Use largest budget for sampling pool
                 budget_estimate = max(self.episode_budget * 8, 128)
-                configs = task.search_space.sample_many(
-                    rng, budget_estimate
-                )
+                configs = task.search_space.sample_many(rng, budget_estimate)
             task_configs[task.name] = configs
             task_action_vecs[task.name] = task.search_space.to_matrix(configs)
             task_meta[task.name] = _meta_features(task)
@@ -814,7 +812,9 @@ class _CrossDatasetDQNController:
             task_max_budget[task.name] = len(configs)
 
         # Maximum budget for any single episode (trajectory)
-        max_single_episode_budget = min(max(task_max_budget.values()), self.episode_budget)
+        max_single_episode_budget = min(
+            max(task_max_budget.values()), self.episode_budget
+        )
 
         # Compute shared state/action dimensions
         meta_dim = len(task_meta[self.tasks[0].name])

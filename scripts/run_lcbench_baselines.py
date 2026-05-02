@@ -110,6 +110,8 @@ def main() -> None:
         evaluator = CrossDatasetEvaluator(
             tasks=tasks,
             methods=[
+                RandomSearch(),
+                BayesianOptimization(initial_points=min(3, args.budget)),
                 CrossDatasetHyperRLOptimizer(
                     **dqn_kwargs,
                     total_episodes=args.total_episodes,
