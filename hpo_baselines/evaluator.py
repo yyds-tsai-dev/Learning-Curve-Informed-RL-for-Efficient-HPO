@@ -9,6 +9,8 @@ from pathlib import Path
 from statistics import mean, stdev
 from typing import Any
 
+from tqdm import tqdm
+
 from .optimizers import BaseOptimizer, OptimizationTrace
 
 type Row = dict[str, Any]
@@ -28,10 +30,16 @@ class BaselineEvaluator:
 
     def run(self) -> list[OptimizationTrace]:
         traces: list[OptimizationTrace] = []
-        for task in self.tasks:
-            for seed in self.seeds:
-                for method in self.methods:
-                    traces.append(method.optimize(task, budget=self.budget, seed=seed))
+        total_runs = len(self.tasks) * len(self.seeds) * len(self.methods)
+
+        with tqdm(total=total_runs, desc="Baseline evaluation", unit="run") as pbar:
+            for task in self.tasks:
+                for seed in self.seeds:
+                    for method in self.methods:
+                        traces.append(
+                            method.optimize(task, budget=self.budget, seed=seed)
+                        )
+                        pbar.update(1)
         return traces
 
     def summarize(self, traces: list[OptimizationTrace]) -> list[Row]:
@@ -301,3 +309,148 @@ def _std(rows: list[Row], key: str) -> float:
     if len(rows) <= 1:
         return 0.0
     return float(stdev(float(row[key]) for row in rows))
+
+
+@dataclass(slots=True)
+class CrossDatasetEvaluator:
+    """Evaluate cross-dataset DQN methods using shared weight inheritance.
+
+    Unlike BaselineEvaluator which trains each method on each task independently,
+    this evaluator trains a single DQN network across multiple tasks with weight
+    persistence (meta-learning). The network is randomly assigned tasks during
+    training episodes.
+
+    This implements the Hyp-RL evaluation protocol where:
+    - A single DQN network is trained across all tasks
+    - Weights are inherited/shared across tasks
+    - Meta-features condition the policy for task-awareness
+    """
+
+    tasks: list[Any]
+    methods: list[BaseOptimizer]
+    total_episodes: int = 50  # Total cross-dataset episodes to run
+    seeds: list[int] | None = None
+
+    def __post_init__(self) -> None:
+        self.seeds = self.seeds or [0, 1, 2, 3, 4]
+
+    def run(self) -> list[OptimizationTrace]:
+        """Run cross-dataset evaluation.
+
+        Returns:
+            Flattened list of OptimizationTrace objects from all methods and seeds
+        """
+        traces: list[OptimizationTrace] = []
+        total_runs = len(self.seeds) * len(self.methods)
+
+        with tqdm(
+            total=total_runs, desc="Cross-dataset evaluation", unit="run"
+        ) as pbar:
+            for seed in self.seeds:
+                for method in self.methods:
+                    # Check if method supports cross-dataset training
+                    # by checking if it's a cross-dataset optimizer class
+                    is_cross_dataset = method.__class__.__name__.startswith(
+                        "CrossDataset"
+                    )
+
+                    if is_cross_dataset:
+                        # Method returns list of traces (cross-dataset style)
+                        method_traces = method.optimize(
+                            self.tasks, self.total_episodes, seed
+                        )
+                        traces.extend(method_traces)
+                    else:
+                        # Fallback to single-task training per task
+                        for task in self.tasks:
+                            traces.append(
+                                method.optimize(task, self.total_episodes, seed)
+                            )
+                    pbar.update(1)
+        return traces
+
+    def summarize(self, traces: list[OptimizationTrace]) -> list[Row]:
+        """Summarize evaluation results (compatible with BaselineEvaluator)."""
+        oracle_by_task_seed: dict[tuple[str, int], float] = {}
+        for trace in traces:
+            key = (trace.task, trace.seed)
+            best_seen = min(record.val_score for record in trace.evaluations)
+            oracle_by_task_seed[key] = min(
+                oracle_by_task_seed.get(key, best_seen), best_seen
+            )
+
+        runs: list[Row] = []
+        for trace in traces:
+            best = trace.best_record
+            oracle = oracle_by_task_seed[(trace.task, trace.seed)]
+            runs.append(
+                {
+                    "task": trace.task,
+                    "method": trace.method,
+                    "seed": trace.seed,
+                    "best_val_score": best.val_score,
+                    "best_test_score": best.test_score,
+                    "simple_regret": best.val_score - oracle,
+                    "best_iteration": best.iteration,
+                }
+            )
+
+        grouped: dict[tuple[str, str], list[Row]] = defaultdict(list)
+        for row in runs:
+            grouped[(row["task"], row["method"])].append(row)
+
+        summary: list[Row] = []
+        for (task, method), rows in sorted(grouped.items()):
+            summary.append(
+                {
+                    "task": task,
+                    "method": method,
+                    "runs": len(rows),
+                    "best_val_score_mean": _mean(rows, "best_val_score"),
+                    "best_val_score_std": _std(rows, "best_val_score"),
+                    "best_test_score_mean": _mean(rows, "best_test_score"),
+                    "best_test_score_std": _std(rows, "best_test_score"),
+                    "simple_regret_mean": _mean(rows, "simple_regret"),
+                    "simple_regret_std": _std(rows, "simple_regret"),
+                    "best_iteration_mean": _mean(rows, "best_iteration"),
+                }
+            )
+        return summary
+
+    def save(self, traces: list[OptimizationTrace], output_dir: Path) -> None:
+        """Save evaluation results."""
+        output_dir.mkdir(parents=True, exist_ok=True)
+        serializable = [
+            {
+                "task": trace.task,
+                "method": trace.method,
+                "seed": trace.seed,
+                "evaluations": [
+                    {
+                        "iteration": record.iteration,
+                        "config": record.config,
+                        "val_score": record.val_score,
+                        "test_score": record.test_score,
+                        "learning_curve": record.learning_curve,
+                        "extra": record.extra,
+                    }
+                    for record in trace.evaluations
+                ],
+            }
+            for trace in traces
+        ]
+        (output_dir / "traces.json").write_text(
+            json.dumps(serializable, indent=2), encoding="utf-8"
+        )
+
+        summary = self.summarize(traces)
+        with (output_dir / "summary.csv").open(
+            "w", newline="", encoding="utf-8"
+        ) as handle:
+            if summary:
+                writer = csv.DictWriter(handle, fieldnames=list(summary[0].keys()))
+                writer.writeheader()
+                writer.writerows(summary)
+        (output_dir / "conclusion.md").write_text(
+            BaselineEvaluator.conclusion(summary), encoding="utf-8"
+        )

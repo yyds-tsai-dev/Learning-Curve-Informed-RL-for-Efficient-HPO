@@ -12,6 +12,9 @@ if (project_root := str(PROJECT_ROOT)) not in sys.path:
 from hpo_baselines import (  # noqa: E402
     BaselineEvaluator,
     BayesianOptimization,
+    CrossDatasetEvaluator,
+    CrossDatasetHyperRLOptimizer,
+    CrossDatasetLCDQNOptimizer,
     HyperRLOptimizer,
     LCBenchTask,
     LearningCurveDQNOptimizer,
@@ -54,6 +57,17 @@ def main() -> None:
     parser.add_argument(
         "--output-dir", type=Path, default=PROJECT_ROOT / "results" / "lcbench"
     )
+    parser.add_argument(
+        "--cross-dataset",
+        action="store_true",
+        help="Use cross-dataset training mode (weight inheritance across datasets).",
+    )
+    parser.add_argument(
+        "--total-episodes",
+        type=int,
+        default=50,
+        help="Total episodes for cross-dataset training (ignored in single-task mode).",
+    )
     args = parser.parse_args()
 
     data = json.loads(args.data_path.read_text(encoding="utf-8"))
@@ -83,21 +97,59 @@ def main() -> None:
         "learning_starts": min(2, args.budget),
         "target_update_freq": 4,
     }
-    evaluator = BaselineEvaluator(
-        tasks=tasks,
-        methods=[
-            RandomSearch(),
-            BayesianOptimization(initial_points=min(3, args.budget)),
-            HyperRLOptimizer(**dqn_kwargs),
-            LearningCurveDQNOptimizer(**dqn_kwargs),
-        ],
-        budget=args.budget,
-        seeds=list(range(args.seeds)),
-    )
-    traces = evaluator.run()
-    evaluator.save(traces, args.output_dir)
 
-    print("LCBench Baseline Evaluation Summary")
+    # Choose evaluation mode based on --cross-dataset flag
+    if args.cross_dataset:
+        # Cross-dataset mode: single network shared across all datasets
+        print(f"\n{'=' * 60}")
+        print("CROSS-DATASET TRAINING MODE")
+        print("Single DQN network with weight inheritance across datasets")
+        print(f"Total episodes: {args.total_episodes}")
+        print(f"{'=' * 60}\n")
+
+        evaluator = CrossDatasetEvaluator(
+            tasks=tasks,
+            methods=[
+                CrossDatasetHyperRLOptimizer(
+                    **dqn_kwargs,
+                    total_episodes=args.total_episodes,
+                    episode_budget=args.budget,
+                ),
+                CrossDatasetLCDQNOptimizer(
+                    **dqn_kwargs,
+                    total_episodes=args.total_episodes,
+                    episode_budget=args.budget,
+                ),
+            ],
+            total_episodes=args.total_episodes,
+            seeds=list(range(args.seeds)),
+        )
+        output_subdir = args.output_dir / "cross_dataset"
+    else:
+        # Single-task mode: each task trained independently
+        print(f"\n{'=' * 60}")
+        print("SINGLE-TASK BASELINE MODE")
+        print("Each task trained independently (no weight sharing)")
+        print(f"Budget per task: {args.budget}")
+        print(f"{'=' * 60}\n")
+
+        evaluator = BaselineEvaluator(
+            tasks=tasks,
+            methods=[
+                RandomSearch(),
+                BayesianOptimization(initial_points=min(3, args.budget)),
+                HyperRLOptimizer(**dqn_kwargs),
+                LearningCurveDQNOptimizer(**dqn_kwargs),
+            ],
+            budget=args.budget,
+            seeds=list(range(args.seeds)),
+        )
+        output_subdir = args.output_dir / "single_task"
+
+    traces = evaluator.run()
+    evaluator.save(traces, output_subdir)
+
+    print("LCBench Evaluation Summary")
     print(
         "task,method,runs,val_score_mean,val_score_std,test_score_mean,simple_regret_mean"
     )
@@ -107,9 +159,20 @@ def main() -> None:
             f"{row['best_val_score_mean']:.4f},{row['best_val_score_std']:.4f},"
             f"{row['best_test_score_mean']:.4f},{row['simple_regret_mean']:.4f}"
         )
-    print(
-        f"\nSaved traces, summary, pairwise comparisons, and conclusion to {args.output_dir}"
-    )
+
+    print(f"\nSaved results to {output_subdir}")
+
+    if args.cross_dataset:
+        print("\nCross-dataset insights:")
+        print("  ✓ Single DQN network shared across datasets")
+        print("  ✓ Weights inherited between episodes (transfer learning)")
+        print("  ✓ Meta-features initialize LSTM hidden state")
+        print("  ✓ Random dataset sampling during training")
+    else:
+        print("\nSingle-task baseline insights:")
+        print("  ✓ Each dataset trained independently")
+        print("  ✓ Network reinitialized for each task")
+        print("  ✓ No weight sharing between datasets")
 
 
 if __name__ == "__main__":
