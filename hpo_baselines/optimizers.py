@@ -49,6 +49,7 @@ class OptimizationTrace:
 
 class BaseOptimizer:
     name = "base"
+    supports_cross_dataset = False
 
     def optimize(self, task: HPOTask, budget: int, seed: int) -> OptimizationTrace:
         raise NotImplementedError
@@ -287,10 +288,11 @@ class CrossDatasetHyperRLOptimizer(BaseOptimizer):
     """
 
     name = "CrossDataset-HyperRL"
+    supports_cross_dataset = True
     hidden_sizes: tuple[int, ...] = (128, 128)
     learning_rate: float = 1e-3
     gamma: float = 0.99
-    replay_size: int = 1024
+    replay_size: int = 10_000
     batch_size: int = 32
     learning_starts: int = 4
     target_update_freq: int = 10
@@ -298,11 +300,16 @@ class CrossDatasetHyperRLOptimizer(BaseOptimizer):
     epsilon_end: float = 0.05
     reward_mode: str = "improvement"
     network_type: str = "lstm"
-    total_episodes: int = 10  # How many cross-dataset episodes to run
-    episode_budget: int = 50  # Budget per task in an episode
+    total_episodes: int = 150  # How many meta-training episodes to run
+    episode_budget: int = 50  # Training budget per task in an episode
+    evaluation_budget: int = 50  # Fixed budget per task in meta-evaluation
 
     def optimize(
-        self, tasks: list[HPOTask], total_episodes: int | None = None, seed: int = 0
+        self,
+        tasks: list[HPOTask],
+        total_episodes: int | None = None,
+        seed: int = 0,
+        evaluation_budget: int | None = None,
     ) -> list[OptimizationTrace]:
         """Train on multiple tasks with shared DQN weights.
 
@@ -311,12 +318,16 @@ class CrossDatasetHyperRLOptimizer(BaseOptimizer):
             total_episodes: Number of episodes (each randomly samples a task).
                            If None, uses self.total_episodes.
             seed: Random seed
+            evaluation_budget: Fixed per-task budget for meta-evaluation.
 
         Returns:
             List of OptimizationTrace objects, one per task
         """
         if total_episodes is None:
             total_episodes = self.total_episodes
+        if evaluation_budget is None:
+            evaluation_budget = self.evaluation_budget
+        replay_size = max(self.replay_size, total_episodes * self.episode_budget)
 
         controller = _CrossDatasetDQNController(
             method_name=self.name,
@@ -325,7 +336,7 @@ class CrossDatasetHyperRLOptimizer(BaseOptimizer):
             hidden_sizes=self.hidden_sizes,
             learning_rate=self.learning_rate,
             gamma=self.gamma,
-            replay_size=self.replay_size,
+            replay_size=replay_size,
             batch_size=self.batch_size,
             learning_starts=self.learning_starts,
             target_update_freq=self.target_update_freq,
@@ -335,7 +346,9 @@ class CrossDatasetHyperRLOptimizer(BaseOptimizer):
             network_type=self.network_type,
             episode_budget=self.episode_budget,
         )
-        return controller.optimize_cross_dataset(total_episodes, seed)
+        return controller.optimize_cross_dataset(
+            total_episodes, seed, evaluation_budget
+        )
 
 
 @dataclass(slots=True)
@@ -345,10 +358,17 @@ class CrossDatasetLCDQNOptimizer(CrossDatasetHyperRLOptimizer):
     name = "CrossDataset-LC-DQN"
 
     def optimize(
-        self, tasks: list[HPOTask], total_episodes: int | None = None, seed: int = 0
+        self,
+        tasks: list[HPOTask],
+        total_episodes: int | None = None,
+        seed: int = 0,
+        evaluation_budget: int | None = None,
     ) -> list[OptimizationTrace]:
         if total_episodes is None:
             total_episodes = self.total_episodes
+        if evaluation_budget is None:
+            evaluation_budget = self.evaluation_budget
+        replay_size = max(self.replay_size, total_episodes * self.episode_budget)
 
         controller = _CrossDatasetDQNController(
             method_name=self.name,
@@ -357,7 +377,7 @@ class CrossDatasetLCDQNOptimizer(CrossDatasetHyperRLOptimizer):
             hidden_sizes=self.hidden_sizes,
             learning_rate=self.learning_rate,
             gamma=self.gamma,
-            replay_size=self.replay_size,
+            replay_size=replay_size,
             batch_size=self.batch_size,
             learning_starts=self.learning_starts,
             target_update_freq=self.target_update_freq,
@@ -367,7 +387,9 @@ class CrossDatasetLCDQNOptimizer(CrossDatasetHyperRLOptimizer):
             network_type=self.network_type,
             episode_budget=self.episode_budget,
         )
-        return controller.optimize_cross_dataset(total_episodes, seed)
+        return controller.optimize_cross_dataset(
+            total_episodes, seed, evaluation_budget
+        )
 
 
 @dataclass(slots=True)
@@ -395,6 +417,27 @@ class _ReplayBuffer:
 
 
 @dataclass(slots=True)
+class _SingleTaskRuntime:
+    candidates: list[Config]
+    action_vectors: np.ndarray
+    meta: np.ndarray
+    row_dim: int
+    n_actions: int
+    online: nn.Module
+    target: nn.Module
+    optimizer: Any
+    replay: _ReplayBuffer
+    history: np.ndarray
+    used: set[int]
+
+
+@dataclass(slots=True)
+class _OptimizationStep:
+    record: EvaluationRecord
+    raw_reward: float
+
+
+@dataclass(slots=True)
 class _DQNController:
     method_name: str
     include_curve_features: bool
@@ -419,7 +462,31 @@ class _DQNController:
     def optimize(self, task: HPOTask, budget: int, seed: int) -> OptimizationTrace:
         rng = np.random.default_rng(seed)
         torch.manual_seed(seed)
+        runtime = self._build_runtime(task, budget, rng)
 
+        evaluations: list[EvaluationRecord] = []
+        previous_raw_reward = 0.0
+        for iteration in tqdm(
+            range(budget), desc=f"Training {task.name}", unit="eval"
+        ):
+            step = self._run_iteration(
+                task,
+                budget,
+                iteration,
+                runtime,
+                rng,
+                previous_raw_reward,
+            )
+            if step is None:
+                break
+            previous_raw_reward = step.raw_reward
+            evaluations.append(step.record)
+
+        return OptimizationTrace(self.method_name, task.name, seed, evaluations)
+
+    def _build_runtime(
+        self, task: HPOTask, budget: int, rng: np.random.Generator
+    ) -> _SingleTaskRuntime:
         candidates = _candidate_configs(task)
         if candidates is None:
             candidates = task.search_space.sample_many(rng, max(budget * 8, 64))
@@ -440,67 +507,98 @@ class _DQNController:
         optimizer = optim.Adam(online.parameters(), lr=self.learning_rate)
         replay = _ReplayBuffer(self.replay_size)
 
-        history = np.zeros((budget, row_dim), dtype=np.float32)
-        used: set[int] = set()
-        evaluations: list[EvaluationRecord] = []
-        previous_raw_reward = 0.0
+        return _SingleTaskRuntime(
+            candidates=candidates,
+            action_vectors=action_vectors,
+            meta=meta,
+            row_dim=row_dim,
+            n_actions=n_actions,
+            online=online,
+            target=target,
+            optimizer=optimizer,
+            replay=replay,
+            history=np.zeros((budget, row_dim), dtype=np.float32),
+            used=set(),
+        )
 
-        for iteration in tqdm(range(budget), desc=f"Training {task.name}", unit="eval"):
-            state = history.reshape(-1).copy()
-            available = [idx for idx in range(n_actions) if idx not in used]
-            if not available:
-                break
-            epsilon = _linear_epsilon(
+    def _run_iteration(
+        self,
+        task: HPOTask,
+        budget: int,
+        iteration: int,
+        runtime: _SingleTaskRuntime,
+        rng: np.random.Generator,
+        previous_raw_reward: float,
+    ) -> _OptimizationStep | None:
+        state = runtime.history.reshape(-1).copy()
+        available = [
+            idx for idx in range(runtime.n_actions) if idx not in runtime.used
+        ]
+        if not available:
+            return None
+
+        epsilon = _linear_epsilon(
+            iteration,
+            max(budget - 1, 1),
+            start=self.epsilon_start,
+            end=self.epsilon_end,
+        )
+        action_idx = self._select_action(
+            runtime.online, state, available, rng, epsilon
+        )
+        runtime.used.add(action_idx)
+
+        config = runtime.candidates[action_idx]
+        result = task.evaluate(config, seed=int(rng.integers(0, 2**31 - 1)))
+        raw_reward = -float(result.val_score)
+        reward = (
+            max(0.0, raw_reward - previous_raw_reward)
+            if self.reward_mode == "improvement"
+            else raw_reward
+        )
+
+        runtime.history[iteration] = self._history_row(
+            runtime.action_vectors[action_idx],
+            raw_reward,
+            runtime.meta,
+            result.learning_curve,
+        )
+        next_state = runtime.history.reshape(-1).copy()
+        done = iteration == budget - 1 or len(runtime.used) == runtime.n_actions
+        runtime.replay.add(_Transition(state, action_idx, reward, next_state, done))
+
+        loss = self._maybe_train(runtime, rng)
+        if (iteration + 1) % self.target_update_freq == 0:
+            runtime.target.load_state_dict(runtime.online.state_dict())
+
+        return _OptimizationStep(
+            record=_record(
                 iteration,
-                max(budget - 1, 1),
-                start=self.epsilon_start,
-                end=self.epsilon_end,
-            )
-            action_idx = self._select_action(online, state, available, rng, epsilon)
-            used.add(action_idx)
+                config,
+                result,
+                extra={
+                    "action_idx": int(action_idx),
+                    "epsilon": float(epsilon),
+                    "raw_reward": raw_reward,
+                    "dqn_reward": float(reward),
+                    "loss": None if loss is None else float(loss),
+                },
+            ),
+            raw_reward=raw_reward,
+        )
 
-            config = candidates[action_idx]
-            result = task.evaluate(config, seed=int(rng.integers(0, 2**31 - 1)))
-            raw_reward = -float(result.val_score)
-            reward = (
-                max(0.0, raw_reward - previous_raw_reward)
-                if self.reward_mode == "improvement"
-                else raw_reward
-            )
-            previous_raw_reward = raw_reward
-
-            history[iteration] = self._history_row(
-                action_vectors[action_idx],
-                raw_reward,
-                meta,
-                result.learning_curve,
-            )
-            next_state = history.reshape(-1).copy()
-            done = iteration == budget - 1 or len(used) == n_actions
-            replay.add(_Transition(state, action_idx, reward, next_state, done))
-
-            loss = None
-            if len(replay) >= max(self.learning_starts, self.batch_size):
-                loss = self._train_step(online, target, optimizer, replay, rng)
-            if (iteration + 1) % self.target_update_freq == 0:
-                target.load_state_dict(online.state_dict())
-
-            evaluations.append(
-                _record(
-                    iteration,
-                    config,
-                    result,
-                    extra={
-                        "action_idx": int(action_idx),
-                        "epsilon": float(epsilon),
-                        "raw_reward": raw_reward,
-                        "dqn_reward": float(reward),
-                        "loss": None if loss is None else float(loss),
-                    },
-                )
-            )
-
-        return OptimizationTrace(self.method_name, task.name, seed, evaluations)
+    def _maybe_train(
+        self, runtime: _SingleTaskRuntime, rng: np.random.Generator
+    ) -> float | None:
+        if len(runtime.replay) < max(self.learning_starts, self.batch_size):
+            return None
+        return self._train_step(
+            runtime.online,
+            runtime.target,
+            runtime.optimizer,
+            runtime.replay,
+            rng,
+        )
 
     def _build_q_network(
         self, state_dim: int, row_dim: int, seq_len: int, n_actions: int
@@ -738,6 +836,27 @@ def _record(
 
 
 @dataclass(slots=True)
+class _CrossDatasetTaskData:
+    task: HPOTask
+    configs: list[Config]
+    action_vectors: np.ndarray
+    meta: np.ndarray
+
+
+@dataclass(slots=True)
+class _CrossDatasetRuntime:
+    task_data: dict[str, _CrossDatasetTaskData]
+    max_rollout_budget: int
+    row_dim: int
+    n_actions: int
+    online: nn.Module
+    target: nn.Module
+    optimizer: Any
+    replay: _ReplayBuffer
+    total_transitions: int = 0
+
+
+@dataclass(slots=True)
 class _CrossDatasetDQNController:
     """Cross-dataset DQN controller for meta-learning HPO.
 
@@ -776,172 +895,298 @@ class _CrossDatasetDQNController:
             raise ValueError("network_type must be 'mlp' or 'lstm'")
 
     def optimize_cross_dataset(
-        self, total_episodes: int, seed: int
+        self, total_episodes: int, seed: int, evaluation_budget: int = 50
     ) -> list[OptimizationTrace]:
-        """Train DQN across multiple datasets with weight inheritance.
+        """Meta-train across datasets, then evaluate with frozen weights.
 
         Args:
             total_episodes: Total number of episodes (each on a random dataset)
             seed: Random seed
+            evaluation_budget: Fixed per-task budget for final meta-evaluation.
 
         Returns:
-            List of OptimizationTrace, one per task (for compatibility with evaluator)
+            List of evaluation-only OptimizationTrace objects, one per task.
         """
         rng = np.random.default_rng(seed)
         torch.manual_seed(seed)
+        runtime = self._build_runtime(rng, evaluation_budget)
 
-        # Pre-compute all task-specific information
-        task_configs: dict[str, list[Config]] = {}
-        task_action_vecs: dict[str, np.ndarray] = {}
-        task_meta: dict[str, np.ndarray] = {}
-        task_max_budget: dict[str, int] = {}
-        task_evaluations: dict[str, list[EvaluationRecord]] = {
-            task.name: [] for task in self.tasks
-        }
+        for episode in tqdm(
+            range(total_episodes), desc="Meta-training", unit="episode"
+        ):
+            self._run_meta_training_episode(
+                episode, total_episodes, runtime, rng
+            )
 
+        runtime.online.eval()
+
+        # Final meta-evaluation: frozen DQN visits every dataset once with the
+        # same fixed budget. These are the only trajectories returned upstream.
+        traces: list[OptimizationTrace] = []
+        for task in self.tasks:
+            trace = self._evaluate_task(
+                task, runtime, rng, total_episodes, seed, evaluation_budget
+            )
+            if trace is not None:
+                traces.append(trace)
+        return traces
+
+    def _build_runtime(
+        self, rng: np.random.Generator, evaluation_budget: int
+    ) -> _CrossDatasetRuntime:
+        task_data = self._prepare_task_data(rng)
+        max_rollout_budget = min(
+            max(len(data.configs) for data in task_data.values()),
+            max(self.episode_budget, evaluation_budget),
+        )
+
+        first = task_data[self.tasks[0].name]
+        meta_dim = len(first.meta)
+        first_action_dim = first.action_vectors.shape[1]
+        row_dim = (
+            first_action_dim
+            + 1
+            + meta_dim
+            + (5 if self.include_curve_features else 0)
+        )
+        state_dim = max_rollout_budget * row_dim
+        n_actions = max(len(data.configs) for data in task_data.values())
+
+        online = self._build_q_network(
+            state_dim, row_dim, max_rollout_budget, n_actions, meta_dim
+        )
+        target = self._build_q_network(
+            state_dim, row_dim, max_rollout_budget, n_actions, meta_dim
+        )
+        target.load_state_dict(online.state_dict())
+
+        return _CrossDatasetRuntime(
+            task_data=task_data,
+            max_rollout_budget=max_rollout_budget,
+            row_dim=row_dim,
+            n_actions=n_actions,
+            online=online,
+            target=target,
+            optimizer=optim.Adam(online.parameters(), lr=self.learning_rate),
+            replay=_ReplayBuffer(self.replay_size),
+        )
+
+    def _prepare_task_data(
+        self, rng: np.random.Generator
+    ) -> dict[str, _CrossDatasetTaskData]:
+        task_data: dict[str, _CrossDatasetTaskData] = {}
         for task in self.tasks:
             configs = _candidate_configs(task)
             if configs is None:
-                # Use largest budget for sampling pool
                 budget_estimate = max(self.episode_budget * 8, 128)
                 configs = task.search_space.sample_many(rng, budget_estimate)
-            task_configs[task.name] = configs
-            task_action_vecs[task.name] = task.search_space.to_matrix(configs)
-            task_meta[task.name] = _meta_features(task)
-            # Track how many configs each task can use
-            task_max_budget[task.name] = len(configs)
+            task_data[task.name] = _CrossDatasetTaskData(
+                task=task,
+                configs=configs,
+                action_vectors=task.search_space.to_matrix(configs),
+                meta=_meta_features(task),
+            )
+        return task_data
 
-        # Maximum budget for any single episode (trajectory)
-        max_single_episode_budget = min(
-            max(task_max_budget.values()), self.episode_budget
+    def _run_meta_training_episode(
+        self,
+        episode: int,
+        total_episodes: int,
+        runtime: _CrossDatasetRuntime,
+        rng: np.random.Generator,
+    ) -> None:
+        task = rng.choice(self.tasks)
+        data = runtime.task_data[task.name]
+        episode_budget = min(len(data.configs), self.episode_budget)
+        history = np.zeros(
+            (runtime.max_rollout_budget, runtime.row_dim), dtype=np.float32
         )
+        used: set[int] = set()
+        previous_raw_reward = 0.0
 
-        # Compute shared state/action dimensions
-        meta_dim = len(task_meta[self.tasks[0].name])
-        first_action_dim = task_action_vecs[self.tasks[0].name].shape[1]
-        row_dim = (
-            first_action_dim
-            + 1  # reward
-            + meta_dim  # meta-features
-            + (5 if self.include_curve_features else 0)  # curve features
-        )
-        state_dim = max_single_episode_budget * row_dim
-        n_actions = max(len(configs) for configs in task_configs.values())
-
-        # Build single shared Q-network (key for weight inheritance)
-        online = self._build_q_network(
-            state_dim, row_dim, max_single_episode_budget, n_actions, meta_dim
-        )
-        target = self._build_q_network(
-            state_dim, row_dim, max_single_episode_budget, n_actions, meta_dim
-        )
-        target.load_state_dict(online.state_dict())
-        optimizer = optim.Adam(online.parameters(), lr=self.learning_rate)
-        replay = _ReplayBuffer(self.replay_size)
-
-        # Track usage per task (for ensuring finite candidate pools)
-        task_used: dict[str, set[int]] = {task.name: set() for task in self.tasks}
-        total_transitions = 0
-
-        for episode in tqdm(
-            range(total_episodes), desc="Cross-dataset training", unit="episode"
-        ):
-            # Randomly sample a dataset (Algorithm 1: $D \sim Unif(\mathcal{D})$)
-            task = rng.choice(self.tasks)
-            task_name = task.name
-            configs = task_configs[task_name]
-            action_vecs = task_action_vecs[task_name]
-            meta = task_meta[task_name]
-            used = task_used[task_name]
-
-            # Determine episode budget (all tasks evaluated to completion or max budget)
-            episode_budget = min(len(configs), self.episode_budget)
-
-            # Pad state to common dimensions
-            history = np.zeros((episode_budget, row_dim), dtype=np.float32)
-            previous_raw_reward = 0.0
-
-            for iteration in range(episode_budget):
-                # Mask out already-used actions
-                available = [idx for idx in range(len(configs)) if idx not in used]
-                if not available:
-                    # Task exhausted; skip remaining iterations in episode
-                    break
-
-                state = history.reshape(-1).copy()
-
-                # Epsilon-greedy action selection
-                epsilon = _linear_epsilon(
+        for iteration in range(episode_budget):
+            transition, raw_reward = self._collect_transition(
+                data=data,
+                iteration=iteration,
+                budget=episode_budget,
+                history=history,
+                used=used,
+                network=runtime.online,
+                rng=rng,
+                epsilon=_linear_epsilon(
                     episode,
                     max(total_episodes - 1, 1),
                     start=self.epsilon_start,
                     end=self.epsilon_end,
-                )
-                action_idx = self._select_action(
-                    online, state, available, meta, rng, epsilon
-                )
-                used.add(action_idx)
+                ),
+                previous_raw_reward=previous_raw_reward,
+            )
+            if transition is None:
+                break
+            previous_raw_reward = raw_reward
+            runtime.replay.add(transition)
+            runtime.total_transitions += 1
+            self._maybe_train_cross_dataset(runtime, data.meta, rng)
 
-                # Evaluate hyperparameter on the current task
-                config = configs[action_idx]
-                result = task.evaluate(config, seed=int(rng.integers(0, 2**31 - 1)))
-                raw_reward = -float(result.val_score)
-                reward = (
-                    max(0.0, raw_reward - previous_raw_reward)
-                    if self.reward_mode == "improvement"
-                    else raw_reward
-                )
-                previous_raw_reward = raw_reward
+    def _collect_transition(
+        self,
+        data: _CrossDatasetTaskData,
+        iteration: int,
+        budget: int,
+        history: np.ndarray,
+        used: set[int],
+        network: nn.Module,
+        rng: np.random.Generator,
+        epsilon: float,
+        previous_raw_reward: float,
+    ) -> tuple[_Transition | None, float]:
+        available = [idx for idx in range(len(data.configs)) if idx not in used]
+        if not available:
+            return None, previous_raw_reward
 
-                # Construct state representation with meta-features
-                history[iteration] = self._history_row(
-                    action_vecs[action_idx],
-                    raw_reward,
-                    meta,
-                    result.learning_curve,
-                )
-                next_state = history.reshape(-1).copy()
-                done = iteration == episode_budget - 1 or len(used) == len(configs)
-                replay.add(_Transition(state, action_idx, reward, next_state, done))
+        state = history.reshape(-1).copy()
+        action_idx = self._select_action(
+            network, state, available, data.meta, rng, epsilon
+        )
+        used.add(action_idx)
 
-                # Record evaluation for this task
-                task_evaluations[task_name].append(
-                    _record(
-                        len(task_evaluations[task_name]),
-                        config,
-                        result,
-                        extra={
-                            "episode": episode,
-                            "iteration": iteration,
-                            "action_idx": int(action_idx),
-                            "epsilon": float(epsilon),
-                            "raw_reward": raw_reward,
-                            "dqn_reward": float(reward),
-                        },
-                    )
-                )
+        config = data.configs[action_idx]
+        result = data.task.evaluate(config, seed=int(rng.integers(0, 2**31 - 1)))
+        raw_reward = -float(result.val_score)
+        reward = (
+            max(0.0, raw_reward - previous_raw_reward)
+            if self.reward_mode == "improvement"
+            else raw_reward
+        )
+        history[iteration] = self._history_row(
+            data.action_vectors[action_idx],
+            raw_reward,
+            data.meta,
+            result.learning_curve,
+        )
+        next_state = history.reshape(-1).copy()
+        done = iteration == budget - 1 or len(used) == len(data.configs)
+        return _Transition(state, action_idx, reward, next_state, done), raw_reward
 
-                total_transitions += 1
+    def _maybe_train_cross_dataset(
+        self,
+        runtime: _CrossDatasetRuntime,
+        meta: np.ndarray,
+        rng: np.random.Generator,
+    ) -> None:
+        if len(runtime.replay) >= max(self.learning_starts, self.batch_size):
+            self._train_step(
+                runtime.online,
+                runtime.target,
+                runtime.optimizer,
+                runtime.replay,
+                meta,
+                rng,
+            )
+        if (runtime.total_transitions + 1) % self.target_update_freq == 0:
+            runtime.target.load_state_dict(runtime.online.state_dict())
 
-                # Training step with shared weights
-                loss = None
-                if len(replay) >= max(self.learning_starts, self.batch_size):
-                    loss = self._train_step(
-                        online, target, optimizer, replay, meta, rng
-                    )
-                if (total_transitions + 1) % self.target_update_freq == 0:
-                    target.load_state_dict(online.state_dict())
+    def _evaluate_task(
+        self,
+        task: HPOTask,
+        runtime: _CrossDatasetRuntime,
+        rng: np.random.Generator,
+        total_episodes: int,
+        seed: int,
+        evaluation_budget: int,
+    ) -> OptimizationTrace | None:
+        data = runtime.task_data[task.name]
+        eval_budget = min(len(data.configs), evaluation_budget)
+        history = np.zeros(
+            (runtime.max_rollout_budget, runtime.row_dim), dtype=np.float32
+        )
+        used: set[int] = set()
+        evaluations: list[EvaluationRecord] = []
+        previous_raw_reward = 0.0
 
-        # Construct traces for each task
-        traces = []
-        for task in self.tasks:
-            evals = task_evaluations[task.name]
-            if evals:  # Only include tasks with evaluations
-                traces.append(
-                    OptimizationTrace(self.method_name, task.name, seed, evals)
-                )
+        for iteration in tqdm(
+            range(eval_budget),
+            desc=f"Meta-evaluating {task.name}",
+            unit="eval",
+            leave=False,
+        ):
+            step = self._run_meta_evaluation_iteration(
+                data=data,
+                iteration=iteration,
+                history=history,
+                used=used,
+                rng=rng,
+                total_episodes=total_episodes,
+                evaluation_budget=evaluation_budget,
+                previous_raw_reward=previous_raw_reward,
+                network=runtime.online,
+            )
+            if step is None:
+                break
+            previous_raw_reward = step.raw_reward
+            evaluations.append(step.record)
 
-        return traces
+        if not evaluations:
+            return None
+        return OptimizationTrace(self.method_name, task.name, seed, evaluations)
+
+    def _run_meta_evaluation_iteration(
+        self,
+        data: _CrossDatasetTaskData,
+        iteration: int,
+        history: np.ndarray,
+        used: set[int],
+        rng: np.random.Generator,
+        total_episodes: int,
+        evaluation_budget: int,
+        previous_raw_reward: float,
+        network: nn.Module,
+    ) -> _OptimizationStep | None:
+        available = [idx for idx in range(len(data.configs)) if idx not in used]
+        if not available:
+            return None
+
+        state = history.reshape(-1).copy()
+        epsilon = 0.01
+        action_idx = self._select_action(
+            network, state, available, data.meta, rng, epsilon
+        )
+        used.add(action_idx)
+
+        config = data.configs[action_idx]
+        result = data.task.evaluate(config, seed=int(rng.integers(0, 2**31 - 1)))
+        raw_reward = -float(result.val_score)
+        reward = (
+            max(0.0, raw_reward - previous_raw_reward)
+            if self.reward_mode == "improvement"
+            else raw_reward
+        )
+        history[iteration] = self._history_row(
+            data.action_vectors[action_idx],
+            raw_reward,
+            data.meta,
+            result.learning_curve,
+        )
+
+        return _OptimizationStep(
+            record=_record(
+                iteration,
+                config,
+                result,
+                extra={
+                    "phase": "meta_evaluation",
+                    "train_total_episodes": int(total_episodes),
+                    "train_episode_budget": int(self.episode_budget),
+                    "replay_size": int(self.replay_size),
+                    "evaluation_budget": int(evaluation_budget),
+                    "action_idx": int(action_idx),
+                    "epsilon": float(epsilon),
+                    "raw_reward": raw_reward,
+                    "dqn_reward": float(reward),
+                },
+            ),
+            raw_reward=raw_reward,
+        )
 
     def _build_q_network(
         self,

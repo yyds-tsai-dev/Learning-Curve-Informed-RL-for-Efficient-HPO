@@ -1,15 +1,19 @@
-# VS Code settings
-.vscode/*
-
-# MacOS specific files
+# OS
 .DS_Store
 Icon?
 
-# Python bytecode files
+# Python
 **/__pycache__/*
+
+# Virtual environments
 **/.venv/*
 
-# Training log files
+# VS Code/IDE settings
+.vscode/*
+
+# Training data, logs, and checkpoints
+**/data/*
+**/traces.json
 **/logs/*
 **/wandb/*
 
@@ -19,6 +23,9 @@ Icon?
 **/*.m4a
 **/*.zip
 
-# Data files
-**/data/*
-**/traces.json
+# Agent outputs and skill files
+skills/*
+AGENTS.md
+.codex/*
+.graphify_python
+graphify-out/*

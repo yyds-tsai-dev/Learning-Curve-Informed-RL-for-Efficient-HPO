@@ -21,6 +21,8 @@ from hpo_baselines import (  # noqa: E402
     RandomSearch,
 )
 
+FIXED_EVALUATION_BUDGET = 20
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run LCBench HPO baselines.")
@@ -43,7 +45,13 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--budget", type=int, default=4, help="HPO evaluations per method/seed."
+        "--budget",
+        type=int,
+        default=4,
+        help=(
+            "Training evaluations per meta-training episode in cross-dataset mode; "
+            "HPO evaluations per method/seed in single-task mode."
+        ),
     )
     parser.add_argument(
         "--seeds", type=int, default=3, help="Number of repeated random seeds."
@@ -65,7 +73,7 @@ def main() -> None:
     parser.add_argument(
         "--total-episodes",
         type=int,
-        default=50,
+        default=150,
         help="Total episodes for cross-dataset training (ignored in single-task mode).",
     )
     args = parser.parse_args()
@@ -105,25 +113,31 @@ def main() -> None:
         print("CROSS-DATASET TRAINING MODE")
         print("Single DQN network with weight inheritance across datasets")
         print(f"Total episodes: {args.total_episodes}")
+        print(f"Training budget per episode: {args.budget}")
+        print(f"Replay buffer size: {max(10_000, args.total_episodes * args.budget)}")
+        print(f"Fixed evaluation budget per task: {FIXED_EVALUATION_BUDGET}")
         print(f"{'=' * 60}\n")
 
         evaluator = CrossDatasetEvaluator(
             tasks=tasks,
             methods=[
                 RandomSearch(),
-                BayesianOptimization(initial_points=min(3, args.budget)),
+                BayesianOptimization(initial_points=min(3, FIXED_EVALUATION_BUDGET)),
                 CrossDatasetHyperRLOptimizer(
                     **dqn_kwargs,
                     total_episodes=args.total_episodes,
                     episode_budget=args.budget,
+                    evaluation_budget=FIXED_EVALUATION_BUDGET,
                 ),
                 CrossDatasetLCDQNOptimizer(
                     **dqn_kwargs,
                     total_episodes=args.total_episodes,
                     episode_budget=args.budget,
+                    evaluation_budget=FIXED_EVALUATION_BUDGET,
                 ),
             ],
             total_episodes=args.total_episodes,
+            evaluation_budget=FIXED_EVALUATION_BUDGET,
             seeds=list(range(args.seeds)),
         )
         output_subdir = args.output_dir / "cross_dataset"
@@ -167,9 +181,10 @@ def main() -> None:
     if args.cross_dataset:
         print("\nCross-dataset insights:")
         print("  ✓ Single DQN network shared across datasets")
-        print("  ✓ Weights inherited between episodes (transfer learning)")
+        print("  ✓ Meta-training and meta-evaluation are separated")
+        print("  ✓ DQN weights are frozen for fixed-budget evaluation")
         print("  ✓ Meta-features initialize LSTM hidden state")
-        print("  ✓ Random dataset sampling during training")
+        print("  ✓ Random dataset sampling during meta-training")
     else:
         print("\nSingle-task baseline insights:")
         print("  ✓ Each dataset trained independently")

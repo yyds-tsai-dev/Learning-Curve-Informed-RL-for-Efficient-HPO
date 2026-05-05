@@ -122,6 +122,7 @@ class BaselineEvaluator:
                 writer = csv.DictWriter(handle, fieldnames=list(summary[0].keys()))
                 writer.writeheader()
                 writer.writerows(summary)
+        _save_budget_performance_outputs(traces, output_dir)
         pairwise = self.pairwise_comparisons(traces)
         with (output_dir / "pairwise_comparisons.csv").open(
             "w", newline="", encoding="utf-8"
@@ -208,22 +209,6 @@ class BaselineEvaluator:
             grouped[row["task"]].append(row)
             by_method[row["method"]].append(row)
 
-        for task, rows in sorted(grouped.items()):
-            lines.append("")
-            lines.append(f"## {task}")
-            lines.append("")
-            lines.append(
-                "| Rank | Method | Val score mean | Test score mean | Simple regret mean |"
-            )
-            lines.append("| --- | --- | ---: | ---: | ---: |")
-            for idx, row in enumerate(
-                sorted(rows, key=lambda item: item["best_val_score_mean"]), start=1
-            ):
-                lines.append(
-                    f"| {idx} | {row['method']} | {row['best_val_score_mean']:.4f} | "
-                    f"{row['best_test_score_mean']:.4f} | {row['simple_regret_mean']:.4f} |"
-                )
-
         overall = []
         for method, rows in by_method.items():
             overall.append(
@@ -298,6 +283,25 @@ class BaselineEvaluator:
             "with a configurable sequence encoder (default: LSTM), and OurMethod-LC-DQN adds "
             "learning-curve and derivative state features."
         )
+
+        lines.append("")
+        lines.append("## Per-Task Rankings")
+
+        for task, rows in sorted(grouped.items()):
+            lines.append("")
+            lines.append(f"### {task}")
+            lines.append("")
+            lines.append(
+                "| Rank | Method | Val score mean | Test score mean | Simple regret mean |"
+            )
+            lines.append("| --- | --- | ---: | ---: | ---: |")
+            for idx, row in enumerate(
+                sorted(rows, key=lambda item: item["best_val_score_mean"]), start=1
+            ):
+                lines.append(
+                    f"| {idx} | {row['method']} | {row['best_val_score_mean']:.4f} | "
+                    f"{row['best_test_score_mean']:.4f} | {row['simple_regret_mean']:.4f} |"
+                )
         return "\n".join(lines) + "\n"
 
 
@@ -309,6 +313,174 @@ def _std(rows: list[Row], key: str) -> float:
     if len(rows) <= 1:
         return 0.0
     return float(stdev(float(row[key]) for row in rows))
+
+
+def _save_budget_performance_outputs(
+    traces: list[OptimizationTrace], output_dir: Path
+) -> None:
+    eval_budget_rows = _performance_rows(traces, x_key="eval_budget")
+    _write_performance_csv(
+        eval_budget_rows,
+        output_dir / "performance_vs_eval_budget.csv",
+        x_key="eval_budget",
+    )
+    if eval_budget_rows:
+        _write_budget_performance_plot(
+            eval_budget_rows,
+            output_dir / "performance_vs_eval_budget.png",
+            x_key="eval_budget",
+            x_label="Evaluation budget",
+            title="Normalized Simple Regret vs. Evaluation Budget",
+            log_x=False,
+        )
+
+    total_eval_rows = _performance_rows(traces, x_key="total_consumed_evals")
+    _write_performance_csv(
+        total_eval_rows,
+        output_dir / "performance_vs_total_consumed_evals.csv",
+        x_key="total_consumed_evals",
+    )
+    if total_eval_rows:
+        _write_budget_performance_plot(
+            total_eval_rows,
+            output_dir / "performance_vs_total_consumed_evals.png",
+            x_key="total_consumed_evals",
+            x_label="Total consumed evaluations",
+            title="Normalized Simple Regret vs. Total Consumed Evaluations",
+            log_x=True,
+        )
+
+
+def _write_performance_csv(rows: list[Row], output_path: Path, x_key: str) -> None:
+    with output_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                x_key,
+                "method",
+                "runs",
+                "normalized_simple_regret_mean",
+                "normalized_simple_regret_std",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _performance_rows(traces: list[OptimizationTrace], x_key: str) -> list[Row]:
+    normalizers = _normalizers_by_task_seed(traces)
+    by_method_x: dict[tuple[str, int], list[float]] = defaultdict(list)
+    for trace in traces:
+        best_seen = float("inf")
+        oracle, denom = normalizers[(trace.task, trace.seed)]
+        train_cost = _meta_training_cost(trace)
+        for record in sorted(trace.evaluations, key=lambda item: item.iteration):
+            best_seen = min(best_seen, float(record.val_score))
+            eval_budget = int(record.iteration) + 1
+            x_value = (
+                train_cost + eval_budget
+                if x_key == "total_consumed_evals"
+                else eval_budget
+            )
+            normalized_simple_regret = (best_seen - oracle) / denom
+            by_method_x[(trace.method, x_value)].append(normalized_simple_regret)
+
+    rows: list[Row] = []
+    for (method, x_value), values in sorted(
+        by_method_x.items(), key=lambda item: (item[0][1], item[0][0])
+    ):
+        rows.append(
+            {
+                x_key: x_value,
+                "method": method,
+                "runs": len(values),
+                "normalized_simple_regret_mean": float(mean(values)),
+                "normalized_simple_regret_std": (
+                    float(stdev(values)) if len(values) > 1 else 0.0
+                ),
+            }
+        )
+    return rows
+
+
+def _normalizers_by_task_seed(
+    traces: list[OptimizationTrace],
+) -> dict[tuple[str, int], tuple[float, float]]:
+    values_by_task_seed: dict[tuple[str, int], list[float]] = defaultdict(list)
+    for trace in traces:
+        values_by_task_seed[(trace.task, trace.seed)].extend(
+            float(record.val_score) for record in trace.evaluations
+        )
+
+    normalizers: dict[tuple[str, int], tuple[float, float]] = {}
+    for key, values in values_by_task_seed.items():
+        oracle = min(values)
+        worst = max(values)
+        normalizers[key] = (oracle, max(worst - oracle, 1e-12))
+    return normalizers
+
+
+def _meta_training_cost(trace: OptimizationTrace) -> int:
+    if not trace.evaluations:
+        return 0
+    extra = trace.evaluations[0].extra
+    total_episodes = extra.get("train_total_episodes")
+    episode_budget = extra.get("train_episode_budget")
+    if total_episodes is None or episode_budget is None:
+        return 0
+    return int(total_episodes) * int(episode_budget)
+
+
+def _write_budget_performance_plot(
+    rows: list[Row],
+    output_path: Path,
+    x_key: str,
+    x_label: str,
+    title: str,
+    log_x: bool,
+) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    series: dict[str, list[tuple[int, float]]] = defaultdict(list)
+    series_std: dict[str, list[tuple[int, float]]] = defaultdict(list)
+    for row in rows:
+        method = str(row["method"])
+        x_value = int(row[x_key])
+        series[method].append(
+            (x_value, float(row["normalized_simple_regret_mean"]))
+        )
+        series_std[method].append(
+            (x_value, float(row["normalized_simple_regret_std"]))
+        )
+
+    fig, ax = plt.subplots(figsize=(10, 6), dpi=180)
+    for method in sorted(series):
+        points = sorted(series[method])
+        std_points = dict(series_std[method])
+        xs = [budget for budget, _ in points]
+        ys = [score for _, score in points]
+        yerr = [std_points[budget] for budget in xs]
+        line = ax.plot(xs, ys, marker="o", linewidth=2.0, markersize=4, label=method)
+        color = line[0].get_color()
+        if any(value > 0 for value in yerr):
+            lower = [score - err for score, err in zip(ys, yerr, strict=True)]
+            upper = [score + err for score, err in zip(ys, yerr, strict=True)]
+            ax.fill_between(xs, lower, upper, color=color, alpha=0.14, linewidth=0)
+
+    if log_x and min(x for points in series.values() for x, _ in points) > 0:
+        ax.set_xscale("log")
+    ax.set_title(title)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel("Per-task normalized simple regret (lower is better)")
+    ax.grid(True, which="major", alpha=0.3)
+    ax.legend(loc="best", frameon=True)
+    ax.margins(x=0.02)
+    fig.tight_layout()
+    fig.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
 
 
 @dataclass(slots=True)
@@ -328,7 +500,8 @@ class CrossDatasetEvaluator:
 
     tasks: list[Any]
     methods: list[BaseOptimizer]
-    total_episodes: int = 50  # Total cross-dataset episodes to run
+    total_episodes: int = 150  # Total cross-dataset meta-training episodes to run
+    evaluation_budget: int = 20  # Fixed per-task budget for final evaluation
     seeds: list[int] | None = None
 
     def __post_init__(self) -> None:
@@ -341,32 +514,34 @@ class CrossDatasetEvaluator:
             Flattened list of OptimizationTrace objects from all methods and seeds
         """
         traces: list[OptimizationTrace] = []
-        total_runs = len(self.seeds) * len(self.methods)
+        total_runs = len(self.seeds) * sum(
+            1 if method.supports_cross_dataset else len(self.tasks)
+            for method in self.methods
+        )
 
         with tqdm(
             total=total_runs, desc="Cross-dataset evaluation", unit="run"
         ) as pbar:
             for seed in self.seeds:
                 for method in self.methods:
-                    # Check if method supports cross-dataset training
-                    # by checking if it's a cross-dataset optimizer class
-                    is_cross_dataset = method.__class__.__name__.startswith(
-                        "CrossDataset"
-                    )
-
-                    if is_cross_dataset:
+                    if method.supports_cross_dataset:
                         # Method returns list of traces (cross-dataset style)
                         method_traces = method.optimize(
-                            self.tasks, self.total_episodes, seed
+                            self.tasks,
+                            self.total_episodes,
+                            seed,
+                            self.evaluation_budget,
                         )
                         traces.extend(method_traces)
+                        pbar.update(1)
                     else:
-                        # Fallback to single-task training per task
+                        # Non-meta baselines are evaluated independently with the
+                        # same fixed evaluation budget used by the frozen DQN.
                         for task in self.tasks:
                             traces.append(
-                                method.optimize(task, self.total_episodes, seed)
+                                method.optimize(task, self.evaluation_budget, seed)
                             )
-                    pbar.update(1)
+                            pbar.update(1)
         return traces
 
     def summarize(self, traces: list[OptimizationTrace]) -> list[Row]:
@@ -451,6 +626,7 @@ class CrossDatasetEvaluator:
                 writer = csv.DictWriter(handle, fieldnames=list(summary[0].keys()))
                 writer.writeheader()
                 writer.writerows(summary)
+        _save_budget_performance_outputs(traces, output_dir)
         (output_dir / "conclusion.md").write_text(
             BaselineEvaluator.conclusion(summary), encoding="utf-8"
         )
