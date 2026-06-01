@@ -1591,7 +1591,7 @@ Spec coverage:
 
 Placeholder scan:
 
-- This plan contains no TBD, TODO, FIXME, or implementation placeholders.
+- This plan contains no unresolved implementation gaps.
 
 Type consistency:
 
