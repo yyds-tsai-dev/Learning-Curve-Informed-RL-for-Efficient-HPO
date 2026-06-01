@@ -79,6 +79,9 @@ def test_prepare_tabular_regression_data_splits_preprocesses_and_meta_features(t
     assert prepared.x_train.shape[1] == prepared.x_test.shape[1]
     assert np.all(np.isfinite(prepared.x_train))
     assert np.all(np.isfinite(prepared.y_train))
-    assert prepared.meta_features.shape == (8,)
-    assert prepared.meta_features[0] == np.log1p(8)
-    assert prepared.meta_features[1] == np.log1p(2)
+    assert prepared.meta_features.shape == (16,)
+    assert prepared.meta_features[0] == 8
+    assert prepared.meta_features[1] == np.log1p(8)
+    assert prepared.meta_features[2] == prepared.x_train.shape[1]
+    assert prepared.meta_features[3] == np.log1p(prepared.x_train.shape[1])
+    assert np.all(np.isfinite(prepared.meta_features))

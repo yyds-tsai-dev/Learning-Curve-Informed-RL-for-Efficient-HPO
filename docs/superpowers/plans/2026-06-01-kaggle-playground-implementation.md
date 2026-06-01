@@ -345,11 +345,15 @@ def test_prepare_tabular_regression_data_splits_preprocesses_and_meta_features(t
     assert prepared.x_val.shape[0] == 1
     assert prepared.x_test.shape[0] == 1
     assert prepared.x_train.shape[1] == prepared.x_val.shape[1]
+    assert prepared.x_train.shape[1] == prepared.x_test.shape[1]
     assert np.all(np.isfinite(prepared.x_train))
     assert np.all(np.isfinite(prepared.y_train))
-    assert prepared.meta_features.shape == (8,)
-    assert prepared.meta_features[0] == np.log1p(8)
-    assert prepared.meta_features[1] == np.log1p(2)
+    assert prepared.meta_features.shape == (16,)
+    assert prepared.meta_features[0] == 8
+    assert prepared.meta_features[1] == np.log1p(8)
+    assert prepared.meta_features[2] == prepared.x_train.shape[1]
+    assert prepared.meta_features[3] == np.log1p(prepared.x_train.shape[1])
+    assert np.all(np.isfinite(prepared.meta_features))
 ```
 
 - [ ] **Step 2: Run preprocessing test and verify it fails**
@@ -403,20 +407,12 @@ def prepare_tabular_regression_data(
         for key in rows[0]
         if key != target_column and key.lower() != "id"
     ]
-    n_raw_features = len(feature_columns)
     numeric_columns = [
         key for key in feature_columns if _is_numeric_column(rows, key)
     ]
     categorical_columns = [
         key for key in feature_columns if key not in numeric_columns
     ]
-    missing_count = sum(
-        1
-        for row in rows
-        for key in feature_columns
-        if _is_missing(row.get(key, ""))
-    )
-    total_cells = max(len(rows) * max(len(feature_columns), 1), 1)
 
     train_idx, val_idx, test_idx = _split_indices(len(rows), split_seed, split)
     numeric_stats = _numeric_stats(rows, train_idx, numeric_columns)
@@ -429,20 +425,7 @@ def prepare_tabular_regression_data(
     y_std = float(y[train_idx].std() + 1e-8)
     y_scaled = ((y - y_mean) / y_std).astype(np.float32)
 
-    n_train_rows = len(train_idx)
-    meta = np.asarray(
-        [
-            math.log1p(n_train_rows),
-            math.log1p(n_raw_features),
-            math.log1p(len(numeric_columns)),
-            math.log1p(len(categorical_columns)),
-            math.log1p(encoded.shape[1]),
-            missing_count / total_cells,
-            len(categorical_columns) / max(n_raw_features, 1),
-            math.log1p(float(y[train_idx].std())),
-        ],
-        dtype=np.float32,
-    )
+    meta = _hyp_rl_table1_meta_features(encoded[train_idx])
     return PreparedRegressionData(
         x_train=encoded[train_idx],
         y_train=y_scaled[train_idx],
@@ -568,6 +551,61 @@ def _encode_features(
             values.extend(1.0 if raw == category else 0.0 for category in categories)
         encoded_rows.append(values)
     return np.asarray(encoded_rows, dtype=np.float32), encoded_names
+
+
+def _hyp_rl_table1_meta_features(x_train: np.ndarray) -> np.ndarray:
+    n_instances = int(x_train.shape[0])
+    n_features = int(x_train.shape[1]) if x_train.ndim == 2 else 0
+    dataset_dimensionality = n_features / max(n_instances, 1)
+    inverse_dataset_dimensionality = n_instances / max(n_features, 1)
+    skewness, kurtosis = _column_skewness_and_kurtosis(x_train)
+
+    return np.asarray(
+        [
+            n_instances,
+            math.log1p(n_instances),
+            n_features,
+            math.log1p(n_features),
+            dataset_dimensionality,
+            math.log1p(dataset_dimensionality),
+            inverse_dataset_dimensionality,
+            math.log1p(inverse_dataset_dimensionality),
+            *_summary_stats(kurtosis),
+            *_summary_stats(skewness),
+        ],
+        dtype=float,
+    )
+
+
+def _column_skewness_and_kurtosis(x_train: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    if x_train.ndim != 2 or x_train.shape[1] == 0:
+        empty = np.asarray([], dtype=float)
+        return empty, empty
+
+    x = x_train.astype(float, copy=False)
+    mean = x.mean(axis=0)
+    std = x.std(axis=0)
+    non_constant = std > 0.0
+    skewness = np.zeros(x.shape[1], dtype=float)
+    kurtosis = np.zeros(x.shape[1], dtype=float)
+
+    if np.any(non_constant):
+        z = (x[:, non_constant] - mean[non_constant]) / std[non_constant]
+        skewness[non_constant] = np.mean(z**3, axis=0)
+        kurtosis[non_constant] = np.mean(z**4, axis=0) - 3.0
+
+    return skewness, kurtosis
+
+
+def _summary_stats(values: np.ndarray) -> tuple[float, float, float, float]:
+    if values.size == 0:
+        return 0.0, 0.0, 0.0, 0.0
+    return (
+        float(np.min(values)),
+        float(np.max(values)),
+        float(np.mean(values)),
+        float(np.std(values)),
+    )
 ```
 
 - [ ] **Step 4: Run preprocessing tests and verify they pass**
@@ -614,7 +652,12 @@ def test_kaggle_regression_task_reads_cache_and_meta_features(tmp_path):
         json.dumps(
             {
                 "task": {"slug": "demo", "name": "Demo", "target_column": "target"},
-                "meta_features": [1.0, 2.0, 3.0, 4.0, 5.0, 0.1, 0.5, 2.5],
+                "meta_features": [
+                    8.0, 2.197224577, 5.0, 1.791759469,
+                    0.625, 0.485507816, 1.6, 0.955511445,
+                    -1.5, 0.0, -0.75, 0.75,
+                    -0.2, 0.2, 0.0, 0.1
+                ],
                 "metric": {"name": "RMSE", "direction": "minimize", "reference_worst_percentile": 90},
                 "configs": [
                     {
@@ -656,7 +699,7 @@ def test_kaggle_regression_task_reads_cache_and_meta_features(tmp_path):
 
     assert task.name == "kaggle_demo"
     assert task.metric_name() == "RMSE"
-    assert task.meta_features().shape == (8,)
+    assert task.meta_features().shape == (16,)
     assert result.val_score == 0.7
     assert result.test_score == 0.85
     assert result.learning_curve == [1.3, 1.1, 0.7]
@@ -819,7 +862,7 @@ def test_build_task_cache_writes_learning_curves(tmp_path):
     assert payload["task"]["slug"] == "demo"
     assert len(payload["configs"]) == 3
     assert len(payload["configs"][0]["learning_curve"]) == 2
-    assert len(payload["meta_features"]) == 8
+    assert len(payload["meta_features"]) == 16
 ```
 
 - [ ] **Step 2: Run cache-builder test and verify it fails**
@@ -1581,7 +1624,7 @@ Spec coverage:
 
 - Fixed 15-task pool: Task 1.
 - 256 configs, 25 epochs, 1 seed, 80/10/10: Task 1 and Task 4.
-- Shared preprocessing and 8 meta-features: Task 2.
+- Shared preprocessing and 16 Hyp-RL Table 1 style meta-features: Task 2.
 - Cached HPO task adapter: Task 3.
 - Normalized simple regret with 90th percentile reference-worst: Task 5.
 - All-methods benchmark and LC-DQN task-count sweep: Task 6 and Task 7.
@@ -1596,5 +1639,5 @@ Placeholder scan:
 Type consistency:
 
 - `KaggleTaskSpec.slug`, `KaggleRegressionTask.name`, and cache task `slug` are used consistently.
-- `meta_features()` returns an 8-dimensional NumPy array.
+- `meta_features()` returns a 16-dimensional NumPy array.
 - `evaluation_tasks` is consistently passed from `CrossDatasetEvaluator` to cross-dataset optimizers and then to `_CrossDatasetDQNController.optimize_cross_dataset`.

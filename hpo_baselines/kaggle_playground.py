@@ -178,21 +178,11 @@ def prepare_tabular_regression_data(
     y_std = target_std if target_std > 0.0 else 1.0
     y_scaled = (y - y_mean) / y_std
 
-    meta_features = np.asarray(
-        [
-            math.log1p(len(train_idx)),
-            math.log1p(len(feature_columns)),
-            math.log1p(len(numeric_columns)),
-            math.log1p(len(categorical_columns)),
-            math.log1p(x.shape[1]),
-            _missing_value_fraction(rows, feature_columns),
-            len(categorical_columns) / max(len(feature_columns), 1),
-            math.log1p(target_std),
-        ]
-    )
+    x_train = x[train_idx]
+    meta_features = _hyp_rl_table1_meta_features(x_train)
 
     return PreparedRegressionData(
-        x_train=x[train_idx],
+        x_train=x_train,
         y_train=y_scaled[train_idx],
         x_val=x[val_idx],
         y_val=y_scaled[val_idx],
@@ -355,16 +345,56 @@ def _target_array(rows: list[dict[str, str]], target_column: str) -> np.ndarray:
     return np.asarray(values, dtype=float)
 
 
-def _missing_value_fraction(
-    rows: list[dict[str, str]],
-    feature_columns: list[str],
-) -> float:
-    if not feature_columns:
-        return 0.0
-    missing = sum(
-        1
-        for row in rows
-        for column in feature_columns
-        if _is_missing(row[column])
+def _hyp_rl_table1_meta_features(x_train: np.ndarray) -> np.ndarray:
+    n_instances = int(x_train.shape[0])
+    n_features = int(x_train.shape[1]) if x_train.ndim == 2 else 0
+    dataset_dimensionality = n_features / max(n_instances, 1)
+    inverse_dataset_dimensionality = n_instances / max(n_features, 1)
+    skewness, kurtosis = _column_skewness_and_kurtosis(x_train)
+
+    return np.asarray(
+        [
+            n_instances,
+            math.log1p(n_instances),
+            n_features,
+            math.log1p(n_features),
+            dataset_dimensionality,
+            math.log1p(dataset_dimensionality),
+            inverse_dataset_dimensionality,
+            math.log1p(inverse_dataset_dimensionality),
+            *_summary_stats(kurtosis),
+            *_summary_stats(skewness),
+        ],
+        dtype=float,
     )
-    return missing / (len(rows) * len(feature_columns))
+
+
+def _column_skewness_and_kurtosis(x_train: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    if x_train.ndim != 2 or x_train.shape[1] == 0:
+        empty = np.asarray([], dtype=float)
+        return empty, empty
+
+    x = x_train.astype(float, copy=False)
+    mean = x.mean(axis=0)
+    std = x.std(axis=0)
+    non_constant = std > 0.0
+    skewness = np.zeros(x.shape[1], dtype=float)
+    kurtosis = np.zeros(x.shape[1], dtype=float)
+
+    if np.any(non_constant):
+        z = (x[:, non_constant] - mean[non_constant]) / std[non_constant]
+        skewness[non_constant] = np.mean(z**3, axis=0)
+        kurtosis[non_constant] = np.mean(z**4, axis=0) - 3.0
+
+    return skewness, kurtosis
+
+
+def _summary_stats(values: np.ndarray) -> tuple[float, float, float, float]:
+    if values.size == 0:
+        return 0.0, 0.0, 0.0, 0.0
+    return (
+        float(np.min(values)),
+        float(np.max(values)),
+        float(np.mean(values)),
+        float(np.std(values)),
+    )
