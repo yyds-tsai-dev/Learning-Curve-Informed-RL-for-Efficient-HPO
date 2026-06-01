@@ -118,6 +118,29 @@ All tasks use one shared preprocessing protocol:
 
 The goal is to make task differences come from the datasets, not from episode-specific Kaggle notebook feature engineering.
 
+## Meta-Features
+
+Kaggle regression tasks should expose task-level meta-features through `meta_features()`.
+
+Existing cross-dataset Hyp-RL and LC-DQN already consume task meta-features through the shared `_meta_features(task)` helper. The helper reads `task.meta_features()` when available and L2-normalizes the returned vector before the cross-dataset controller uses it. With the LSTM network, the meta-feature vector initializes the LSTM hidden and cell states. The same vector is also included in each history row.
+
+Kaggle task meta-features must use only dataset and preprocessing statistics, not HPO cache performance. They must not include oracle scores, reference-worst scores, validation RMSE summaries, test RMSE summaries, winning configuration properties, or any other value derived from the cached HPO outcomes.
+
+Use this fixed 8-dimensional vector:
+
+| Index | Feature |
+| --- | --- |
+| 0 | `log1p(n_train_rows)` |
+| 1 | `log1p(n_raw_features)` |
+| 2 | `log1p(n_numeric_features)` |
+| 3 | `log1p(n_categorical_features)` |
+| 4 | `log1p(n_processed_features_after_onehot)` |
+| 5 | `missing_value_fraction` |
+| 6 | `categorical_feature_fraction` |
+| 7 | `log1p(target_std_on_train_split)` |
+
+Hyp-RL and LC-DQN use this same 8-dimensional task meta-feature vector. LC-DQN's additional information comes only from learning-curve and derivative features observed after evaluating configurations.
+
 ## Task Adapter
 
 Add a `KaggleRegressionTask` adapter parallel to `LCBenchTask`.
@@ -254,6 +277,8 @@ Test coverage should verify:
 
 - manifest parsing
 - preprocessing handles numeric and categorical columns
+- Kaggle task meta-features contain the fixed 8-dimensional dataset/preprocessing vector
+- Kaggle task meta-features do not depend on HPO cache scores
 - cache builder writes valid learning curves and metadata
 - `KaggleRegressionTask.evaluate` returns cached `EvalResult` values
 - normalized simple regret uses the table oracle and 90th percentile reference-worst

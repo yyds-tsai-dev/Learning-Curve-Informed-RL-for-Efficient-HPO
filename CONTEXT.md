@@ -14,6 +14,14 @@ Each Kaggle `train.csv` is split into 80% train, 10% validation, and 10% held-ou
 
 Kaggle Regression Tasks use one shared tabular preprocessing protocol. Identifier-like columns are excluded. Numeric features are imputed and scaled. Categorical features are imputed and one-hot encoded. Targets are scaled for model training while reported scores remain interpretable for the task.
 
+## Task Meta-Features
+
+Task Meta-Features are dataset-level descriptors used to condition cross-task Hyp-RL and LC-DQN policies.
+
+For Kaggle Regression Tasks, Task Meta-Features describe the dataset and preprocessing result only. They do not include HPO cache outcomes, oracle scores, model performance, or other values that would leak benchmark answers into the policy.
+
+Hyp-RL and LC-DQN use the same Task Meta-Features. LC-DQN differs by additionally using learning-curve features observed during configuration evaluation.
+
 ## Task Pool
 
 A Task Pool is the fixed collection of Kaggle Regression Tasks used in an experiment.
