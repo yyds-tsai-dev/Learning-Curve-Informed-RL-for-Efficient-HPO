@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import torch
 
 from .search_space import Config, Parameter, SearchSpace
 from .tasks import EvalResult
@@ -303,6 +304,163 @@ class PreparedRegressionData:
     y_std: float
     meta_features: np.ndarray
     feature_names: tuple[str, ...]
+
+
+class _TabularMLP(torch.nn.Module):
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_width: int,
+        num_layers: int,
+        dropout: float,
+    ) -> None:
+        super().__init__()
+        layers: list[torch.nn.Module] = []
+        width = int(hidden_width)
+        previous_dim = input_dim
+        for _ in range(int(num_layers)):
+            layers.append(torch.nn.Linear(previous_dim, width))
+            layers.append(torch.nn.ReLU())
+            if dropout > 0.0:
+                layers.append(torch.nn.Dropout(float(dropout)))
+            previous_dim = width
+        layers.append(torch.nn.Linear(previous_dim, 1))
+        self.network = torch.nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.network(x).squeeze(-1)
+
+
+def build_task_cache(
+    spec: KaggleTaskSpec,
+    train_csv: str | Path,
+    output_path: str | Path,
+    configs_per_task: int,
+    epochs_per_config: int,
+    split_seed: int,
+    config_seed: int,
+) -> None:
+    prepared = prepare_tabular_regression_data(
+        csv_path=train_csv,
+        target_column=spec.target_column,
+        split_seed=split_seed,
+        split=(0.8, 0.1, 0.1),
+    )
+    rng = np.random.default_rng(config_seed)
+    search_space = kaggle_mlp_search_space()
+    configs = search_space.sample_many(rng, configs_per_task)
+    records = []
+    for config_id, config in enumerate(configs):
+        serializable_config = _json_serializable_config(config)
+        result = _train_cached_mlp(
+            prepared=prepared,
+            config=serializable_config,
+            epochs=epochs_per_config,
+            seed=config_seed + config_id,
+        )
+        records.append(
+            {
+                "config_id": config_id,
+                "config": serializable_config,
+                "val_score": result["val_score"],
+                "test_score": result["test_score"],
+                "learning_curve": result["learning_curve"],
+            }
+        )
+
+    cache = {
+        "task": {
+            "slug": spec.slug,
+            "name": spec.name,
+            "display_name": spec.name,
+            "target_column": spec.target_column,
+            "meta_features": [float(value) for value in prepared.meta_features],
+        },
+        "metric": {
+            "name": "RMSE",
+            "direction": "minimize",
+            "reference_worst_percentile": 90,
+        },
+        "configs": records,
+    }
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+
+
+def _json_serializable_config(config: Config) -> dict[str, int | float]:
+    serializable: dict[str, int | float] = {}
+    for key, value in config.items():
+        if isinstance(value, bool):
+            serializable[key] = int(value)
+        elif isinstance(value, (np.integer, int)):
+            serializable[key] = int(value)
+        elif isinstance(value, (np.floating, float)):
+            serializable[key] = float(value)
+        else:
+            serializable[key] = value
+    return serializable
+
+
+def _train_cached_mlp(
+    prepared: PreparedRegressionData,
+    config: Config,
+    epochs: int,
+    seed: int,
+) -> dict[str, float | list[float]]:
+    torch.manual_seed(seed)
+    model = _TabularMLP(
+        input_dim=prepared.x_train.shape[1],
+        hidden_width=int(config["hidden_width"]),
+        num_layers=int(config["num_layers"]),
+        dropout=float(config["dropout"]),
+    )
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=float(config["learning_rate"]),
+        weight_decay=float(config["weight_decay"]),
+    )
+    x_train = torch.as_tensor(prepared.x_train, dtype=torch.float32)
+    y_train = torch.as_tensor(prepared.y_train, dtype=torch.float32)
+    x_val = torch.as_tensor(prepared.x_val, dtype=torch.float32)
+    y_val = torch.as_tensor(prepared.y_val, dtype=torch.float32)
+    x_test = torch.as_tensor(prepared.x_test, dtype=torch.float32)
+    y_test = torch.as_tensor(prepared.y_test, dtype=torch.float32)
+
+    batch_size = max(1, int(config["batch_size"]))
+    learning_curve: list[float] = []
+    for epoch in range(epochs):
+        model.train()
+        generator = torch.Generator().manual_seed(seed + epoch)
+        permutation = torch.randperm(x_train.shape[0], generator=generator)
+        for start in range(0, x_train.shape[0], batch_size):
+            batch_indices = permutation[start : start + batch_size]
+            prediction = model(x_train[batch_indices])
+            loss = torch.nn.functional.mse_loss(prediction, y_train[batch_indices])
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        model.eval()
+        with torch.no_grad():
+            val_prediction = model(x_val)
+            val_rmse = _rmse(val_prediction, y_val) * prepared.y_std
+        learning_curve.append(float(val_rmse))
+
+    model.eval()
+    with torch.no_grad():
+        test_prediction = model(x_test)
+        test_rmse = _rmse(test_prediction, y_test) * prepared.y_std
+    return {
+        "val_score": float(learning_curve[-1]),
+        "test_score": float(test_rmse),
+        "learning_curve": learning_curve,
+    }
+
+
+def _rmse(prediction: torch.Tensor, target: torch.Tensor) -> float:
+    mse = torch.mean((prediction - target) ** 2)
+    return float(torch.sqrt(mse).item())
 
 
 def prepare_tabular_regression_data(

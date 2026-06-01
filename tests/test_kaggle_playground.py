@@ -11,6 +11,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from hpo_baselines.kaggle_playground import (
     KaggleRegressionTask,
+    KaggleTaskSpec,
+    build_task_cache,
     load_manifest,
     nested_task_slugs,
     prepare_tabular_regression_data,
@@ -282,3 +284,50 @@ def test_prepare_tabular_regression_data_unknown_categories_keep_train_schema(tm
     assert prepared.x_test.shape == (1, 2)
     assert np.array_equal(prepared.x_val[0], np.zeros(2, dtype=np.float32))
     assert np.array_equal(prepared.x_test[0], np.zeros(2, dtype=np.float32))
+
+
+def test_build_task_cache_writes_learning_curves(tmp_path):
+    raw_dir = tmp_path / "raw" / "demo"
+    raw_dir.mkdir(parents=True)
+    train_csv = raw_dir / "train.csv"
+    rows = [
+        {
+            "id": row_id,
+            "x": float(row_id),
+            "group": ["a", "b", "c"][row_id % 3],
+            "target": float(2 * row_id + (row_id % 3)),
+        }
+        for row_id in range(30)
+    ]
+    _write_csv(train_csv, rows)
+
+    output_path = tmp_path / "cache" / "demo.json"
+    spec = KaggleTaskSpec(
+        slug="demo",
+        episode="demo",
+        name="Demo",
+        target_column="target",
+    )
+
+    build_task_cache(
+        spec=spec,
+        train_csv=train_csv,
+        output_path=output_path,
+        configs_per_task=3,
+        epochs_per_config=2,
+        split_seed=123,
+        config_seed=456,
+    )
+
+    raw = json.loads(output_path.read_text(encoding="utf-8"))
+    assert raw["task"]["slug"] == "demo"
+    assert raw["task"]["name"] == "Demo"
+    assert len(raw["configs"]) == 3
+    assert len(raw["task"]["meta_features"]) == 16
+    for index, item in enumerate(raw["configs"]):
+        assert item["config_id"] == index
+        assert len(item["learning_curve"]) == 2
+
+    task = KaggleRegressionTask(output_path)
+    assert task.name == "demo"
+    assert task.meta_features().shape == (16,)
