@@ -403,6 +403,7 @@ class _Transition:
     reward: float
     next_state: np.ndarray
     done: bool
+    meta: np.ndarray
 
 
 class _ReplayBuffer:
@@ -569,7 +570,16 @@ class _DQNController:
         )
         next_state = runtime.history.reshape(-1).copy()
         done = iteration == budget - 1 or len(runtime.used) == runtime.n_actions
-        runtime.replay.add(_Transition(state, action_idx, reward, next_state, done))
+        runtime.replay.add(
+            _Transition(
+                state=state,
+                action=action_idx,
+                reward=reward,
+                next_state=next_state,
+                done=done,
+                meta=runtime.meta.copy(),
+            )
+        )
 
         loss = self._maybe_train(runtime, rng)
         if (iteration + 1) % self.target_update_freq == 0:
@@ -1065,7 +1075,7 @@ class _CrossDatasetDQNController:
             previous_raw_reward = raw_reward
             runtime.replay.add(transition)
             runtime.total_transitions += 1
-            self._maybe_train_cross_dataset(runtime, data.meta, rng)
+            self._maybe_train_cross_dataset(runtime, rng)
 
     def _collect_transition(
         self,
@@ -1105,12 +1115,21 @@ class _CrossDatasetDQNController:
         )
         next_state = history.reshape(-1).copy()
         done = iteration == budget - 1 or len(used) == len(data.configs)
-        return _Transition(state, action_idx, reward, next_state, done), raw_reward
+        return (
+            _Transition(
+                state=state,
+                action=action_idx,
+                reward=reward,
+                next_state=next_state,
+                done=done,
+                meta=data.meta.copy(),
+            ),
+            raw_reward,
+        )
 
     def _maybe_train_cross_dataset(
         self,
         runtime: _CrossDatasetRuntime,
-        meta: np.ndarray,
         rng: np.random.Generator,
     ) -> None:
         if len(runtime.replay) >= max(self.learning_starts, self.batch_size):
@@ -1119,7 +1138,6 @@ class _CrossDatasetDQNController:
                 runtime.target,
                 runtime.optimizer,
                 runtime.replay,
-                meta,
                 rng,
             )
         if (runtime.total_transitions + 1) % self.target_update_freq == 0:
@@ -1292,7 +1310,6 @@ class _CrossDatasetDQNController:
         target: Any,
         optimizer: Any,
         replay: _ReplayBuffer,
-        meta: np.ndarray,
         rng: np.random.Generator,
     ) -> float:
         batch = replay.sample(rng, self.batch_size)
@@ -1306,13 +1323,10 @@ class _CrossDatasetDQNController:
         )
         dones = torch.as_tensor([item.done for item in batch], dtype=torch.float32)
 
-        meta_tensor = (
-            torch.as_tensor(meta, dtype=torch.float32)
-            .unsqueeze(0)
-            .expand(states.shape[0], -1)
-            if len(meta) > 0
-            else None
-        )
+        meta_values = [item.meta for item in batch]
+        meta_tensor = None
+        if meta_values and len(meta_values[0]) > 0:
+            meta_tensor = torch.as_tensor(np.vstack(meta_values), dtype=torch.float32)
 
         if isinstance(online, _LSTMQNetwork):
             q_selected = (

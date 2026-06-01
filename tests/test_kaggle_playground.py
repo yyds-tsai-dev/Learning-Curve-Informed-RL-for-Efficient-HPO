@@ -12,7 +12,11 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from hpo_baselines.evaluator import BaselineEvaluator, CrossDatasetEvaluator
+from hpo_baselines.evaluator import (
+    BaselineEvaluator,
+    CrossDatasetEvaluator,
+    _performance_rows,
+)
 import hpo_baselines.kaggle_playground as kaggle_playground
 from hpo_baselines.kaggle_playground import (
     KaggleRegressionTask,
@@ -34,6 +38,7 @@ from hpo_baselines.optimizers import (
 from hpo_baselines.search_space import Parameter, SearchSpace
 from hpo_baselines.tasks import EvalResult, SyntheticRegressionTask
 from scripts.build_kaggle_playground_cache import positive_int
+from scripts.run_kaggle_playground import _write_task_count_outputs
 
 MANIFEST = PROJECT_ROOT / "data" / "kaggle_playground" / "manifest.json"
 
@@ -326,6 +331,22 @@ def test_cross_dataset_evaluator_summarize_falls_back_to_raw_simple_regret():
     assert by_method["B"]["normalized_simple_regret_mean"] == pytest.approx(0.0)
 
 
+def test_budget_performance_rows_use_kaggle_normalizer_metadata():
+    traces = [
+        _trace(
+            task="kaggle_demo",
+            method="A",
+            seed=0,
+            scores=[2.0],
+            normalizer={"oracle_val_score": 1.0, "reference_worst_val_score": 3.0},
+        )
+    ]
+
+    rows = _performance_rows(traces, x_key="eval_budget")
+
+    assert rows[0]["normalized_simple_regret_mean"] == pytest.approx(0.5)
+
+
 def test_cross_dataset_lc_dqn_optimize_accepts_evaluation_tasks():
     signature = inspect.signature(CrossDatasetLCDQNOptimizer.optimize)
 
@@ -549,6 +570,96 @@ def test_cross_dataset_lc_dqn_sizes_actions_from_evaluation_tasks():
     assert {
         record.extra["action_idx"] for record in traces[0].evaluations
     } == {0, 1, 2}
+
+
+def test_cross_dataset_evaluator_save_writes_pairwise_comparisons(tmp_path):
+    traces = [
+        OptimizationTrace(
+            method="A",
+            task="kaggle_demo",
+            seed=0,
+            evaluations=[
+                EvaluationRecord(
+                    iteration=0,
+                    config={},
+                    val_score=1.0,
+                    test_score=1.0,
+                    learning_curve=[1.0],
+                )
+            ],
+        ),
+        OptimizationTrace(
+            method="B",
+            task="kaggle_demo",
+            seed=0,
+            evaluations=[
+                EvaluationRecord(
+                    iteration=0,
+                    config={},
+                    val_score=2.0,
+                    test_score=2.0,
+                    learning_curve=[2.0],
+                )
+            ],
+        ),
+    ]
+
+    CrossDatasetEvaluator(tasks=[], methods=[]).save(traces, tmp_path)
+
+    assert (tmp_path / "pairwise_comparisons.csv").exists()
+    assert "method_a,method_b" in (
+        tmp_path / "pairwise_comparisons.csv"
+    ).read_text(encoding="utf-8")
+
+
+def test_task_count_outputs_write_aggregate_files(tmp_path):
+    normalizer = {"oracle_val_score": 1.0, "reference_worst_val_score": 3.0}
+    traces_by_count = {
+        1: [
+            OptimizationTrace(
+                method="CrossDataset-LC-DQN",
+                task="kaggle_demo",
+                seed=0,
+                evaluations=[
+                    EvaluationRecord(
+                        iteration=0,
+                        config={},
+                        val_score=2.0,
+                        test_score=2.0,
+                        learning_curve=[2.0],
+                        extra={"normalizer": normalizer},
+                    )
+                ],
+            )
+        ],
+        5: [
+            OptimizationTrace(
+                method="CrossDataset-LC-DQN",
+                task="kaggle_demo",
+                seed=0,
+                evaluations=[
+                    EvaluationRecord(
+                        iteration=0,
+                        config={},
+                        val_score=1.5,
+                        test_score=1.5,
+                        learning_curve=[1.5],
+                        extra={"normalizer": normalizer},
+                    )
+                ],
+            )
+        ],
+    }
+
+    _write_task_count_outputs(traces_by_count, tmp_path)
+
+    assert (tmp_path / "summary_by_task_count.csv").exists()
+    assert (tmp_path / "normalized_simple_regret_by_task_count.csv").exists()
+    assert (tmp_path / "normalized_simple_regret_by_task_count.png").exists()
+    assert (tmp_path / "traces.json").exists()
+    assert "0.249999" in (tmp_path / "summary_by_task_count.csv").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_kaggle_regression_task_rejects_duplicate_config_ids(tmp_path):

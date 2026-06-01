@@ -420,17 +420,23 @@ def _performance_rows(traces: list[OptimizationTrace], x_key: str) -> list[Row]:
     by_method_x: dict[tuple[str, int], list[float]] = defaultdict(list)
     for trace in traces:
         best_seen = float("inf")
-        oracle, denom = normalizers[(trace.task, trace.seed)]
+        best_record = None
+        oracle, _denom = normalizers[(trace.task, trace.seed)]
         train_cost = _meta_training_cost(trace)
         for record in sorted(trace.evaluations, key=lambda item: item.iteration):
-            best_seen = min(best_seen, float(record.val_score))
+            if float(record.val_score) < best_seen:
+                best_seen = float(record.val_score)
+                best_record = record
             eval_budget = int(record.iteration) + 1
             x_value = (
                 train_cost + eval_budget
                 if x_key == "total_consumed_evals"
                 else eval_budget
             )
-            normalized_simple_regret = (best_seen - oracle) / denom
+            simple_regret = best_seen - oracle
+            normalized_simple_regret = _normalized_simple_regret_or_raw(
+                best_record or record, simple_regret
+            )
             by_method_x[(trace.method, x_value)].append(normalized_simple_regret)
 
     rows: list[Row] = []
@@ -702,6 +708,26 @@ class CrossDatasetEvaluator:
                 writer.writeheader()
                 writer.writerows(summary)
         _save_budget_performance_outputs(traces, output_dir)
+        pairwise = BaselineEvaluator.pairwise_comparisons(traces)
+        with (output_dir / "pairwise_comparisons.csv").open(
+            "w", newline="", encoding="utf-8"
+        ) as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=[
+                    "task",
+                    "method_a",
+                    "method_b",
+                    "mean_delta_a_minus_b",
+                    "std_delta",
+                    "wins_a",
+                    "wins_b",
+                    "ties",
+                    "runs",
+                ],
+            )
+            writer.writeheader()
+            writer.writerows(pairwise)
         (output_dir / "conclusion.md").write_text(
             BaselineEvaluator.conclusion(summary), encoding="utf-8"
         )
