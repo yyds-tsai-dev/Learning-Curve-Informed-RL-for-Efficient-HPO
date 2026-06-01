@@ -154,14 +154,16 @@ def prepare_tabular_regression_data(
     feature_columns = [
         key for key in rows[0] if key != target_column and key.lower() != "id"
     ]
+    train_idx, val_idx, test_idx = _split_indices(len(rows), split_seed, split)
     numeric_columns = [
-        column for column in feature_columns if _is_numeric_column(rows, column)
+        column
+        for column in feature_columns
+        if _is_numeric_column(rows, train_idx, column)
     ]
     categorical_columns = [
         column for column in feature_columns if column not in numeric_columns
     ]
 
-    train_idx, val_idx, test_idx = _split_indices(len(rows), split_seed, split)
     numeric_stats = _fit_numeric_stats(rows, train_idx, numeric_columns)
     categorical_stats = _fit_categorical_stats(rows, train_idx, categorical_columns)
     x, feature_names = _transform_features(
@@ -207,19 +209,44 @@ def _is_missing(value: object) -> bool:
     return value is None or str(value).strip() == ""
 
 
-def _is_number(value: object) -> bool:
+def _parse_finite_float(value: object) -> float | None:
+    if _is_missing(value):
+        return None
+    try:
+        parsed = float(str(value).strip())
+    except ValueError:
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _is_nonfinite_number(value: object) -> bool:
     if _is_missing(value):
         return False
     try:
-        float(str(value).strip())
+        parsed = float(str(value).strip())
     except ValueError:
         return False
-    return True
+    return not math.isfinite(parsed)
 
 
-def _is_numeric_column(rows: list[dict[str, str]], column: str) -> bool:
-    observed = [row[column] for row in rows if not _is_missing(row[column])]
-    return bool(observed) and all(_is_number(value) for value in observed)
+def _is_number(value: object) -> bool:
+    return _parse_finite_float(value) is not None
+
+
+def _is_numeric_column(
+    rows: list[dict[str, str]], train_idx: np.ndarray, column: str
+) -> bool:
+    observed_finite = False
+    for idx in train_idx:
+        value = rows[int(idx)][column]
+        if _is_missing(value):
+            continue
+        if _is_number(value):
+            observed_finite = True
+            continue
+        if not _is_nonfinite_number(value):
+            return False
+    return observed_finite
 
 
 def _split_indices(
@@ -257,17 +284,17 @@ def _fit_numeric_stats(
     for column in columns:
         observed = np.asarray(
             [
-                float(rows[int(idx)][column])
+                parsed
                 for idx in train_idx
-                if not _is_missing(rows[int(idx)][column])
+                if (parsed := _parse_finite_float(rows[int(idx)][column])) is not None
             ],
             dtype=np.float32,
         )
         median = float(np.median(observed)) if observed.size else 0.0
         filled = np.asarray(
             [
-                float(rows[int(idx)][column])
-                if not _is_missing(rows[int(idx)][column])
+                parsed
+                if (parsed := _parse_finite_float(rows[int(idx)][column])) is not None
                 else median
                 for idx in train_idx
             ],
@@ -318,7 +345,9 @@ def _transform_features(
         offset = 0
         for column in numeric_columns:
             median, mean, std = numeric_stats[column]
-            value = median if _is_missing(row[column]) else float(row[column])
+            value = _parse_finite_float(row[column])
+            if value is None:
+                value = median
             x[row_idx, offset] = (value - mean) / std
             offset += 1
 

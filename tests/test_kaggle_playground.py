@@ -85,3 +85,61 @@ def test_prepare_tabular_regression_data_splits_preprocesses_and_meta_features(t
     assert prepared.meta_features[2] == prepared.x_train.shape[1]
     assert prepared.meta_features[3] == np.log1p(prepared.x_train.shape[1])
     assert np.all(np.isfinite(prepared.meta_features))
+
+
+def test_prepare_tabular_regression_data_fits_numeric_columns_from_train_only(tmp_path):
+    csv_path = tmp_path / "train.csv"
+    _write_csv(
+        csv_path,
+        [
+            {"id": 1, "num": 1.0, "target": 10.0},
+            {"id": 2, "num": "not-a-number", "target": 12.0},
+            {"id": 3, "num": "NaN", "target": 14.0},
+            {"id": 4, "num": "inf", "target": 16.0},
+            {"id": 5, "num": 5.0, "target": 18.0},
+        ],
+    )
+
+    prepared = prepare_tabular_regression_data(
+        csv_path=csv_path,
+        target_column="target",
+        split_seed=123,
+        split=(0.6, 0.2, 0.2),
+    )
+
+    assert prepared.feature_names == ("num",)
+    assert prepared.x_train.shape == (3, 1)
+    assert prepared.x_val.shape == (1, 1)
+    assert prepared.x_test.shape == (1, 1)
+    assert np.all(np.isfinite(prepared.x_train))
+    assert np.all(np.isfinite(prepared.x_val))
+    assert np.all(np.isfinite(prepared.x_test))
+    assert np.all(np.isfinite(prepared.meta_features))
+
+
+def test_prepare_tabular_regression_data_unknown_categories_keep_train_schema(tmp_path):
+    csv_path = tmp_path / "train.csv"
+    _write_csv(
+        csv_path,
+        [
+            {"id": 1, "cat": "a", "target": 10.0},
+            {"id": 2, "cat": "unseen-test", "target": 12.0},
+            {"id": 3, "cat": "b", "target": 14.0},
+            {"id": 4, "cat": "unseen-val", "target": 16.0},
+            {"id": 5, "cat": "a", "target": 18.0},
+        ],
+    )
+
+    prepared = prepare_tabular_regression_data(
+        csv_path=csv_path,
+        target_column="target",
+        split_seed=123,
+        split=(0.6, 0.2, 0.2),
+    )
+
+    assert prepared.feature_names == ("cat=a", "cat=b")
+    assert prepared.x_train.shape == (3, 2)
+    assert prepared.x_val.shape == (1, 2)
+    assert prepared.x_test.shape == (1, 2)
+    assert np.array_equal(prepared.x_val[0], np.zeros(2, dtype=np.float32))
+    assert np.array_equal(prepared.x_test[0], np.zeros(2, dtype=np.float32))
