@@ -1,3 +1,4 @@
+import argparse
 import csv
 import json
 from pathlib import Path
@@ -18,6 +19,7 @@ from hpo_baselines.kaggle_playground import (
     nested_task_slugs,
     prepare_tabular_regression_data,
 )
+from scripts.build_kaggle_playground_cache import positive_int
 
 MANIFEST = PROJECT_ROOT / "data" / "kaggle_playground" / "manifest.json"
 
@@ -336,6 +338,52 @@ def test_build_task_cache_writes_learning_curves(tmp_path):
     task = KaggleRegressionTask(output_path)
     assert task.name == "demo"
     assert task.meta_features().shape == (16,)
+
+
+def test_build_task_cache_rejects_non_positive_configs_per_task(tmp_path):
+    spec = KaggleTaskSpec(
+        slug="demo",
+        episode="demo",
+        name="Demo",
+        target_column="target",
+    )
+
+    with pytest.raises(ValueError, match=r"configs_per_task.*positive"):
+        build_task_cache(
+            spec=spec,
+            train_csv=tmp_path / "missing.csv",
+            output_path=tmp_path / "cache" / "demo.json",
+            configs_per_task=0,
+            epochs_per_config=1,
+            split_seed=123,
+            config_seed=456,
+        )
+
+
+def test_build_task_cache_rejects_non_positive_epochs_per_config(tmp_path):
+    spec = KaggleTaskSpec(
+        slug="demo",
+        episode="demo",
+        name="Demo",
+        target_column="target",
+    )
+
+    with pytest.raises(ValueError, match=r"epochs_per_config.*positive"):
+        build_task_cache(
+            spec=spec,
+            train_csv=tmp_path / "missing.csv",
+            output_path=tmp_path / "cache" / "demo.json",
+            configs_per_task=1,
+            epochs_per_config=0,
+            split_seed=123,
+            config_seed=456,
+        )
+
+
+@pytest.mark.parametrize("raw_value", ["0", "-1"])
+def test_positive_int_rejects_non_positive_values(raw_value):
+    with pytest.raises(argparse.ArgumentTypeError, match="positive"):
+        positive_int(raw_value)
 
 
 def test_build_task_cache_rejects_nonfinite_scores_before_write(tmp_path, monkeypatch):

@@ -340,6 +340,11 @@ def build_task_cache(
     split_seed: int,
     config_seed: int,
 ) -> None:
+    if configs_per_task <= 0:
+        raise ValueError("configs_per_task must be positive")
+    if epochs_per_config <= 0:
+        raise ValueError("epochs_per_config must be positive")
+
     prepared = prepare_tabular_regression_data(
         csv_path=train_csv,
         target_column=spec.target_column,

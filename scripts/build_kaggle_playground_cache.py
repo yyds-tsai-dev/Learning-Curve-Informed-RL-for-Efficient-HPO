@@ -10,6 +10,13 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from hpo_baselines.kaggle_playground import build_task_cache, load_manifest
 
 
+def positive_int(raw_value: str) -> int:
+    value = int(raw_value)
+    if value <= 0:
+        raise argparse.ArgumentTypeError("value must be positive")
+    return value
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Build Kaggle Playground MLP learning-curve caches."
@@ -31,8 +38,8 @@ def main() -> None:
             "nested order."
         ),
     )
-    parser.add_argument("--configs-per-task", type=int)
-    parser.add_argument("--epochs-per-config", type=int)
+    parser.add_argument("--configs-per-task", type=positive_int)
+    parser.add_argument("--epochs-per-config", type=positive_int)
     parser.add_argument("--config-seed", type=int, default=20260601)
     args = parser.parse_args()
 
@@ -43,8 +50,16 @@ def main() -> None:
         if not args.tasks or args.tasks == ["all"]
         else args.tasks
     )
-    configs_per_task = args.configs_per_task or manifest.cache.configs_per_task
-    epochs_per_config = args.epochs_per_config or manifest.cache.epochs_per_config
+    configs_per_task = (
+        manifest.cache.configs_per_task
+        if args.configs_per_task is None
+        else args.configs_per_task
+    )
+    epochs_per_config = (
+        manifest.cache.epochs_per_config
+        if args.epochs_per_config is None
+        else args.epochs_per_config
+    )
 
     for slug in task_slugs:
         if slug not in task_by_slug:
