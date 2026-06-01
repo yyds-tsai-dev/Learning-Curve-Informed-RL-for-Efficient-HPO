@@ -31,7 +31,8 @@ from hpo_baselines.optimizers import (
     OptimizationTrace,
     RandomSearch,
 )
-from hpo_baselines.tasks import SyntheticRegressionTask
+from hpo_baselines.search_space import Parameter, SearchSpace
+from hpo_baselines.tasks import EvalResult, SyntheticRegressionTask
 from scripts.build_kaggle_playground_cache import positive_int
 
 MANIFEST = PROJECT_ROOT / "data" / "kaggle_playground" / "manifest.json"
@@ -399,6 +400,68 @@ class _RecordingSingleTaskMethod(BaseOptimizer):
         )
 
 
+class _LegacyRecordingCrossDatasetMethod(BaseOptimizer):
+    name = "Legacy Recording Cross"
+    supports_cross_dataset = True
+
+    def __init__(self):
+        self.calls = []
+
+    def optimize(
+        self,
+        tasks,
+        total_episodes=None,
+        seed=0,
+        evaluation_budget=None,
+    ):
+        self.calls.append(
+            {
+                "tasks": tasks,
+                "total_episodes": total_episodes,
+                "seed": seed,
+                "evaluation_budget": evaluation_budget,
+            }
+        )
+        return [
+            OptimizationTrace(
+                method=self.name,
+                task=task.name,
+                seed=seed,
+                evaluations=[
+                    EvaluationRecord(
+                        iteration=0,
+                        config={},
+                        val_score=1.0,
+                        test_score=1.0,
+                        learning_curve=[1.0],
+                    )
+                ],
+            )
+            for task in tasks
+        ]
+
+
+class _FiniteRegressionTask:
+    def __init__(self, name: str, values: list[float]):
+        self.name = name
+        self.search_space = SearchSpace([Parameter("x", "float", low=0.0, high=1.0)])
+        self.candidate_configs = [
+            {"x": float(value), "__config_id__": idx}
+            for idx, value in enumerate(values)
+        ]
+
+    def evaluate(self, config, seed=0):
+        del seed
+        config_id = int(config["__config_id__"])
+        score = float(config_id + 1)
+        return EvalResult(
+            val_score=score,
+            test_score=score,
+            learning_curve=[score + 0.5, score],
+            metadata={},
+        )
+
+
 def test_cross_dataset_evaluator_separates_training_and_evaluation_tasks():
     train_tasks = [SimpleNamespace(name="train-a"), SimpleNamespace(name="train-b")]
     eval_tasks = [SimpleNamespace(name="eval-a"), SimpleNamespace(name="eval-b")]
@@ -431,6 +494,61 @@ def test_cross_dataset_evaluator_separates_training_and_evaluation_tasks():
         "eval-a",
         "eval-b",
     ]
+
+
+def test_cross_dataset_evaluator_preserves_legacy_cross_optimizer_api():
+    train_tasks = [SimpleNamespace(name="train-a"), SimpleNamespace(name="train-b")]
+    legacy_method = _LegacyRecordingCrossDatasetMethod()
+    evaluator = CrossDatasetEvaluator(
+        tasks=train_tasks,
+        methods=[legacy_method],
+        total_episodes=3,
+        evaluation_budget=2,
+        seeds=[7],
+    )
+
+    traces = evaluator.run()
+
+    assert legacy_method.calls == [
+        {
+            "tasks": train_tasks,
+            "total_episodes": 3,
+            "seed": 7,
+            "evaluation_budget": 2,
+        }
+    ]
+    assert [trace.task for trace in traces] == ["train-a", "train-b"]
+
+
+def test_cross_dataset_lc_dqn_sizes_actions_from_evaluation_tasks():
+    train_task = _FiniteRegressionTask("train", [0.2])
+    eval_task = _FiniteRegressionTask("eval", [0.1, 0.5, 0.9])
+    optimizer = CrossDatasetLCDQNOptimizer(
+        hidden_sizes=(8,),
+        learning_starts=99,
+        batch_size=16,
+        total_episodes=1,
+        episode_budget=1,
+        evaluation_budget=3,
+        network_type="mlp",
+        epsilon_start=0.0,
+        epsilon_end=0.0,
+    )
+
+    traces = optimizer.optimize(
+        [train_task],
+        total_episodes=1,
+        seed=0,
+        evaluation_budget=3,
+        evaluation_tasks=[eval_task],
+    )
+
+    assert len(traces) == 1
+    assert traces[0].task == "eval"
+    assert len(traces[0].evaluations) == 3
+    assert {
+        record.extra["action_idx"] for record in traces[0].evaluations
+    } == {0, 1, 2}
 
 
 def test_kaggle_regression_task_rejects_duplicate_config_ids(tmp_path):

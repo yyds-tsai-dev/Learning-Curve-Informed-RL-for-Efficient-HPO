@@ -563,7 +563,9 @@ class CrossDatasetEvaluator:
             Flattened list of OptimizationTrace objects from all methods and seeds
         """
         traces: list[OptimizationTrace] = []
-        tasks_to_evaluate = self.evaluation_tasks or self.tasks
+        tasks_to_evaluate = (
+            self.tasks if self.evaluation_tasks is None else self.evaluation_tasks
+        )
         total_runs = len(self.seeds) * sum(
             1 if method.supports_cross_dataset else len(tasks_to_evaluate)
             for method in self.methods
@@ -576,13 +578,21 @@ class CrossDatasetEvaluator:
                 for method in self.methods:
                     if method.supports_cross_dataset:
                         # Method returns list of traces (cross-dataset style)
-                        method_traces = method.optimize(
-                            self.tasks,
-                            self.total_episodes,
-                            seed,
-                            self.evaluation_budget,
-                            evaluation_tasks=tasks_to_evaluate,
-                        )
+                        if self.evaluation_tasks is None:
+                            method_traces = method.optimize(
+                                self.tasks,
+                                self.total_episodes,
+                                seed,
+                                self.evaluation_budget,
+                            )
+                        else:
+                            method_traces = method.optimize(
+                                self.tasks,
+                                self.total_episodes,
+                                seed,
+                                self.evaluation_budget,
+                                evaluation_tasks=tasks_to_evaluate,
+                            )
                         traces.extend(method_traces)
                         pbar.update(1)
                     else:

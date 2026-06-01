@@ -921,7 +921,10 @@ class _CrossDatasetDQNController:
         """
         rng = np.random.default_rng(seed)
         torch.manual_seed(seed)
-        runtime = self._build_runtime(rng, evaluation_budget)
+        if not self.tasks:
+            raise ValueError("Cross-dataset meta-training requires at least one task")
+        tasks_to_evaluate = self.tasks if evaluation_tasks is None else evaluation_tasks
+        runtime = self._build_runtime(rng, evaluation_budget, tasks_to_evaluate)
 
         for episode in tqdm(
             range(total_episodes), desc="Meta-training", unit="episode"
@@ -931,16 +934,11 @@ class _CrossDatasetDQNController:
             )
 
         runtime.online.eval()
-        tasks_to_evaluate = evaluation_tasks or self.tasks
 
         # Final meta-evaluation: frozen DQN visits every dataset once with the
         # same fixed budget. These are the only trajectories returned upstream.
         traces: list[OptimizationTrace] = []
         for task in tasks_to_evaluate:
-            if task.name not in runtime.task_data:
-                runtime.task_data[task.name] = self._prepare_single_task_data(
-                    task, rng
-                )
             trace = self._evaluate_task(
                 task, runtime, rng, total_episodes, seed, evaluation_budget
             )
@@ -949,15 +947,30 @@ class _CrossDatasetDQNController:
         return traces
 
     def _build_runtime(
-        self, rng: np.random.Generator, evaluation_budget: int
+        self,
+        rng: np.random.Generator,
+        evaluation_budget: int,
+        evaluation_tasks: list[HPOTask],
     ) -> _CrossDatasetRuntime:
-        task_data = self._prepare_task_data(rng)
+        task_data = self._prepare_task_data(rng, evaluation_tasks)
         max_rollout_budget = min(
             max(len(data.configs) for data in task_data.values()),
             max(self.episode_budget, evaluation_budget),
         )
 
-        first = task_data[self.tasks[0].name]
+        action_dims = {data.action_vectors.shape[1] for data in task_data.values()}
+        if len(action_dims) != 1:
+            raise ValueError(
+                "Cross-dataset DQN requires tasks with the same search-space "
+                "vector dimension"
+            )
+        meta_dims = {len(data.meta) for data in task_data.values()}
+        if len(meta_dims) != 1:
+            raise ValueError(
+                "Cross-dataset DQN requires tasks with the same meta-feature dimension"
+            )
+
+        first = next(iter(task_data.values()))
         meta_dim = len(first.meta)
         first_action_dim = first.action_vectors.shape[1]
         row_dim = (
@@ -989,10 +1002,14 @@ class _CrossDatasetDQNController:
         )
 
     def _prepare_task_data(
-        self, rng: np.random.Generator
+        self, rng: np.random.Generator, evaluation_tasks: list[HPOTask]
     ) -> dict[str, _CrossDatasetTaskData]:
         task_data: dict[str, _CrossDatasetTaskData] = {}
-        for task in self.tasks:
+        seen: set[str] = set()
+        for task in [*self.tasks, *evaluation_tasks]:
+            if task.name in seen:
+                continue
+            seen.add(task.name)
             task_data[task.name] = self._prepare_single_task_data(task, rng)
         return task_data
 
