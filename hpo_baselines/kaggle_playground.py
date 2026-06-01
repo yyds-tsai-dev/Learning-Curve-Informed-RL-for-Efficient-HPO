@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import csv
 import json
+import math
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+
+import numpy as np
 
 
 @dataclass(frozen=True)
@@ -120,3 +125,246 @@ def _validate_manifest(manifest: KaggleManifest) -> None:
     missing = sorted(set(nested_order) - set(slugs))
     if missing:
         raise ValueError(f"nested_order contains unknown task slugs: {missing}")
+
+
+@dataclass(frozen=True)
+class PreparedRegressionData:
+    x_train: np.ndarray
+    y_train: np.ndarray
+    x_val: np.ndarray
+    y_val: np.ndarray
+    x_test: np.ndarray
+    y_test: np.ndarray
+    y_mean: float
+    y_std: float
+    meta_features: np.ndarray
+    feature_names: tuple[str, ...]
+
+
+def prepare_tabular_regression_data(
+    csv_path: str | Path,
+    target_column: str,
+    split_seed: int,
+    split: tuple[float, float, float],
+) -> PreparedRegressionData:
+    rows = _read_csv_rows(Path(csv_path))
+    if target_column not in rows[0]:
+        raise ValueError(f"Target column {target_column!r} not found in {csv_path}")
+
+    feature_columns = [
+        key for key in rows[0] if key != target_column and key.lower() != "id"
+    ]
+    numeric_columns = [
+        column for column in feature_columns if _is_numeric_column(rows, column)
+    ]
+    categorical_columns = [
+        column for column in feature_columns if column not in numeric_columns
+    ]
+
+    train_idx, val_idx, test_idx = _split_indices(len(rows), split_seed, split)
+    numeric_stats = _fit_numeric_stats(rows, train_idx, numeric_columns)
+    categorical_stats = _fit_categorical_stats(rows, train_idx, categorical_columns)
+    x, feature_names = _transform_features(
+        rows,
+        numeric_columns,
+        categorical_columns,
+        numeric_stats,
+        categorical_stats,
+    )
+
+    y = _target_array(rows, target_column)
+    y_mean = float(y[train_idx].mean())
+    target_std = float(y[train_idx].std())
+    y_std = target_std if target_std > 0.0 else 1.0
+    y_scaled = (y - y_mean) / y_std
+
+    meta_features = np.asarray(
+        [
+            math.log1p(len(train_idx)),
+            math.log1p(len(feature_columns)),
+            math.log1p(len(numeric_columns)),
+            math.log1p(len(categorical_columns)),
+            math.log1p(x.shape[1]),
+            _missing_value_fraction(rows, feature_columns),
+            len(categorical_columns) / max(len(feature_columns), 1),
+            math.log1p(target_std),
+        ]
+    )
+
+    return PreparedRegressionData(
+        x_train=x[train_idx],
+        y_train=y_scaled[train_idx],
+        x_val=x[val_idx],
+        y_val=y_scaled[val_idx],
+        x_test=x[test_idx],
+        y_test=y_scaled[test_idx],
+        y_mean=y_mean,
+        y_std=y_std,
+        meta_features=meta_features,
+        feature_names=tuple(feature_names),
+    )
+
+
+def _read_csv_rows(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows:
+        raise ValueError(f"{path} has no rows")
+    return rows
+
+
+def _is_missing(value: object) -> bool:
+    return value is None or str(value).strip() == ""
+
+
+def _is_number(value: object) -> bool:
+    if _is_missing(value):
+        return False
+    try:
+        float(str(value).strip())
+    except ValueError:
+        return False
+    return True
+
+
+def _is_numeric_column(rows: list[dict[str, str]], column: str) -> bool:
+    observed = [row[column] for row in rows if not _is_missing(row[column])]
+    return bool(observed) and all(_is_number(value) for value in observed)
+
+
+def _split_indices(
+    n_rows: int,
+    seed: int,
+    split: tuple[float, float, float],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if len(split) != 3:
+        raise ValueError("split must contain train, validation, and test fractions")
+    if any(part <= 0.0 for part in split):
+        raise ValueError("split fractions must be positive")
+    if abs(sum(split) - 1.0) > 1e-8:
+        raise ValueError("split fractions must sum to 1.0")
+
+    rng = np.random.default_rng(seed)
+    indices = rng.permutation(n_rows)
+    n_train = int(round(n_rows * split[0]))
+    n_val = int(round(n_rows * split[1]))
+    n_test = n_rows - n_train - n_val
+    if min(n_train, n_val, n_test) <= 0:
+        raise ValueError("Split produced an empty partition")
+    return (
+        indices[:n_train],
+        indices[n_train : n_train + n_val],
+        indices[n_train + n_val :],
+    )
+
+
+def _fit_numeric_stats(
+    rows: list[dict[str, str]],
+    train_idx: np.ndarray,
+    columns: list[str],
+) -> dict[str, tuple[float, float, float]]:
+    stats: dict[str, tuple[float, float, float]] = {}
+    for column in columns:
+        observed = np.asarray(
+            [
+                float(rows[int(idx)][column])
+                for idx in train_idx
+                if not _is_missing(rows[int(idx)][column])
+            ],
+            dtype=np.float32,
+        )
+        median = float(np.median(observed)) if observed.size else 0.0
+        filled = np.asarray(
+            [
+                float(rows[int(idx)][column])
+                if not _is_missing(rows[int(idx)][column])
+                else median
+                for idx in train_idx
+            ],
+            dtype=np.float32,
+        )
+        mean = float(filled.mean())
+        std = float(filled.std())
+        stats[column] = (median, mean, std if std > 0.0 else 1.0)
+    return stats
+
+
+def _fit_categorical_stats(
+    rows: list[dict[str, str]],
+    train_idx: np.ndarray,
+    columns: list[str],
+) -> dict[str, tuple[str, tuple[str, ...]]]:
+    stats: dict[str, tuple[str, tuple[str, ...]]] = {}
+    for column in columns:
+        train_values = [
+            str(rows[int(idx)][column]).strip()
+            for idx in train_idx
+            if not _is_missing(rows[int(idx)][column])
+        ]
+        if train_values:
+            most_frequent = Counter(train_values).most_common(1)[0][0]
+            categories = tuple(sorted(set(train_values)))
+        else:
+            most_frequent = ""
+            categories = ()
+        stats[column] = (most_frequent, categories)
+    return stats
+
+
+def _transform_features(
+    rows: list[dict[str, str]],
+    numeric_columns: list[str],
+    categorical_columns: list[str],
+    numeric_stats: dict[str, tuple[float, float, float]],
+    categorical_stats: dict[str, tuple[str, tuple[str, ...]]],
+) -> tuple[np.ndarray, list[str]]:
+    feature_names = list(numeric_columns)
+    for column in categorical_columns:
+        _, categories = categorical_stats[column]
+        feature_names.extend(f"{column}={category}" for category in categories)
+
+    x = np.zeros((len(rows), len(feature_names)), dtype=np.float32)
+    for row_idx, row in enumerate(rows):
+        offset = 0
+        for column in numeric_columns:
+            median, mean, std = numeric_stats[column]
+            value = median if _is_missing(row[column]) else float(row[column])
+            x[row_idx, offset] = (value - mean) / std
+            offset += 1
+
+        for column in categorical_columns:
+            most_frequent, categories = categorical_stats[column]
+            value = (
+                most_frequent
+                if _is_missing(row[column])
+                else str(row[column]).strip()
+            )
+            if value in categories:
+                x[row_idx, offset + categories.index(value)] = 1.0
+            offset += len(categories)
+    return x, feature_names
+
+
+def _target_array(rows: list[dict[str, str]], target_column: str) -> np.ndarray:
+    values = []
+    for row in rows:
+        value = row[target_column]
+        if _is_missing(value):
+            raise ValueError(f"Target column {target_column!r} contains missing values")
+        values.append(float(value))
+    return np.asarray(values, dtype=float)
+
+
+def _missing_value_fraction(
+    rows: list[dict[str, str]],
+    feature_columns: list[str],
+) -> float:
+    if not feature_columns:
+        return 0.0
+    missing = sum(
+        1
+        for row in rows
+        for column in feature_columns
+        if _is_missing(row[column])
+    )
+    return missing / (len(rows) * len(feature_columns))
