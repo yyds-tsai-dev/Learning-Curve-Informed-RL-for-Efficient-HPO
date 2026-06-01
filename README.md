@@ -55,6 +55,35 @@ Budget sweep outputs are also available:
 - `results/lcbench_budget_sweep.md`
 - `results/lcbench_budget500_20datasets/`
 
+## Kaggle Playground Regression Benchmark
+
+The Kaggle Playground benchmark uses a fixed 15-task regression pool defined in
+`data/kaggle_playground/manifest.json`. Raw Kaggle data is not committed.
+
+Download raw competition files:
+
+```bash
+uv run python scripts/download_kaggle_playground.py --tasks all
+```
+
+Build cached MLP learning-curve tables:
+
+```bash
+uv run python scripts/build_kaggle_playground_cache.py --tasks all
+```
+
+Run all methods on all 15 tasks:
+
+```bash
+uv run python scripts/run_kaggle_playground.py --suite all-methods
+```
+
+Run the LC-DQN task-count sweep:
+
+```bash
+uv run python scripts/run_kaggle_playground.py --suite lcdqn-task-count
+```
+
 ## Toy Regression Baseline
 
 The earlier synthetic regression smoke test is still available:
