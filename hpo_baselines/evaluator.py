@@ -11,6 +11,7 @@ from typing import Any
 
 from tqdm import tqdm
 
+from .kaggle_playground import normalized_simple_regret
 from .optimizers import BaseOptimizer, OptimizationTrace
 
 type Row = dict[str, Any]
@@ -55,6 +56,7 @@ class BaselineEvaluator:
         for trace in traces:
             best = trace.best_record
             oracle = oracle_by_task_seed[(trace.task, trace.seed)]
+            simple_regret = best.val_score - oracle
             runs.append(
                 {
                     "task": trace.task,
@@ -62,7 +64,10 @@ class BaselineEvaluator:
                     "seed": trace.seed,
                     "best_val_score": best.val_score,
                     "best_test_score": best.test_score,
-                    "simple_regret": best.val_score - oracle,
+                    "simple_regret": simple_regret,
+                    "normalized_simple_regret": _normalized_simple_regret_or_raw(
+                        best, simple_regret
+                    ),
                     "best_iteration": best.iteration,
                 }
             )
@@ -84,6 +89,12 @@ class BaselineEvaluator:
                     "best_test_score_std": _std(rows, "best_test_score"),
                     "simple_regret_mean": _mean(rows, "simple_regret"),
                     "simple_regret_std": _std(rows, "simple_regret"),
+                    "normalized_simple_regret_mean": _mean(
+                        rows, "normalized_simple_regret"
+                    ),
+                    "normalized_simple_regret_std": _std(
+                        rows, "normalized_simple_regret"
+                    ),
                     "best_iteration_mean": _mean(rows, "best_iteration"),
                 }
             )
@@ -303,6 +314,22 @@ class BaselineEvaluator:
                     f"{row['best_test_score_mean']:.4f} | {row['simple_regret_mean']:.4f} |"
                 )
         return "\n".join(lines) + "\n"
+
+
+def _normalized_simple_regret_or_raw(record: Any, raw_simple_regret: float) -> float:
+    metadata = getattr(record, "metadata", None)
+    if not isinstance(metadata, dict):
+        metadata = {}
+    normalizer = metadata.get("normalizer")
+    if not isinstance(normalizer, dict):
+        return float(raw_simple_regret)
+
+    try:
+        oracle = float(normalizer["oracle_val_score"])
+        reference = float(normalizer["reference_worst_val_score"])
+        return normalized_simple_regret(float(record.val_score), oracle, reference)
+    except (KeyError, TypeError, ValueError):
+        return float(raw_simple_regret)
 
 
 def _mean(rows: list[Row], key: str) -> float:
@@ -558,6 +585,7 @@ class CrossDatasetEvaluator:
         for trace in traces:
             best = trace.best_record
             oracle = oracle_by_task_seed[(trace.task, trace.seed)]
+            simple_regret = best.val_score - oracle
             runs.append(
                 {
                     "task": trace.task,
@@ -565,7 +593,10 @@ class CrossDatasetEvaluator:
                     "seed": trace.seed,
                     "best_val_score": best.val_score,
                     "best_test_score": best.test_score,
-                    "simple_regret": best.val_score - oracle,
+                    "simple_regret": simple_regret,
+                    "normalized_simple_regret": _normalized_simple_regret_or_raw(
+                        best, simple_regret
+                    ),
                     "best_iteration": best.iteration,
                 }
             )
@@ -587,6 +618,12 @@ class CrossDatasetEvaluator:
                     "best_test_score_std": _std(rows, "best_test_score"),
                     "simple_regret_mean": _mean(rows, "simple_regret"),
                     "simple_regret_std": _std(rows, "simple_regret"),
+                    "normalized_simple_regret_mean": _mean(
+                        rows, "normalized_simple_regret"
+                    ),
+                    "normalized_simple_regret_std": _std(
+                        rows, "normalized_simple_regret"
+                    ),
                     "best_iteration_mean": _mean(rows, "best_iteration"),
                 }
             )

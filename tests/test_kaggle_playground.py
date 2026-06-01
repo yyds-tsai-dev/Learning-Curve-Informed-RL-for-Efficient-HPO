@@ -3,6 +3,7 @@ import csv
 import json
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -10,6 +11,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from hpo_baselines.evaluator import BaselineEvaluator, CrossDatasetEvaluator
 import hpo_baselines.kaggle_playground as kaggle_playground
 from hpo_baselines.kaggle_playground import (
     KaggleRegressionTask,
@@ -17,6 +19,8 @@ from hpo_baselines.kaggle_playground import (
     build_task_cache,
     load_manifest,
     nested_task_slugs,
+    normalized_simple_regret,
+    normalized_simple_regret_reference,
     prepare_tabular_regression_data,
 )
 from scripts.build_kaggle_playground_cache import positive_int
@@ -82,6 +86,125 @@ def test_kaggle_regression_task_reads_cache_and_meta_features(tmp_path):
     assert result.val_score == 0.75
     assert result.test_score == 0.9
     assert result.learning_curve == [1.4, 1.0, 0.75]
+
+
+def test_normalized_simple_regret_reference_uses_table_oracle_and_percentile():
+    oracle, reference = normalized_simple_regret_reference([10.0, 1.0, 4.0, 2.0])
+
+    assert oracle == 1.0
+    assert reference == pytest.approx(8.2)
+    assert normalized_simple_regret(4.6, oracle, reference) == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize(
+    ("scores", "percentile", "match"),
+    [
+        ([], 90, "non-empty"),
+        ([[1.0, 2.0]], 90, "1D"),
+        ([1.0, float("inf")], 90, "finite"),
+        ([1.0, 2.0], -1, "percentile"),
+        ([1.0, 2.0], 101, "percentile"),
+    ],
+)
+def test_normalized_simple_regret_reference_validates_inputs(
+    scores, percentile, match
+):
+    with pytest.raises(ValueError, match=match):
+        normalized_simple_regret_reference(scores, percentile=percentile)
+
+
+def test_normalized_simple_regret_reference_falls_back_when_reference_equals_oracle():
+    oracle, reference = normalized_simple_regret_reference([3.0, 3.0, 3.0])
+
+    assert oracle == 3.0
+    assert reference > oracle
+    assert normalized_simple_regret(3.0, oracle, reference) == 0.0
+    assert normalized_simple_regret(4.0, oracle, reference) > 0.0
+
+
+def test_kaggle_regression_task_exposes_normalizer_metadata(tmp_path):
+    cache_path = tmp_path / "kaggle_demo.json"
+    cache_path.write_text(json.dumps(_valid_kaggle_cache()), encoding="utf-8")
+
+    task = KaggleRegressionTask(cache_path)
+    result = task.evaluate({"__config_id__": 0}, seed=123)
+
+    assert task.oracle_val_score == 0.75
+    assert task.reference_worst_val_score == pytest.approx(1.2)
+    assert result.metadata["normalizer"] == {
+        "oracle_val_score": 0.75,
+        "reference_worst_val_score": pytest.approx(1.2),
+    }
+
+
+def _trace(
+    *,
+    task: str,
+    method: str,
+    seed: int,
+    scores: list[float],
+    normalizer: dict[str, float] | None = None,
+):
+    records = []
+    for iteration, score in enumerate(scores):
+        metadata = {"normalizer": normalizer} if normalizer is not None else {}
+        records.append(
+            SimpleNamespace(
+                iteration=iteration,
+                val_score=score,
+                test_score=score + 0.1,
+                metadata=metadata,
+                extra={},
+            )
+        )
+    return SimpleNamespace(
+        task=task,
+        method=method,
+        seed=seed,
+        evaluations=records,
+        best_record=min(records, key=lambda record: record.val_score),
+    )
+
+
+def test_baseline_evaluator_summarize_reports_kaggle_normalized_simple_regret():
+    traces = [
+        _trace(
+            task="kaggle_demo",
+            method="A",
+            seed=0,
+            scores=[1.4, 1.2],
+            normalizer={"oracle_val_score": 1.0, "reference_worst_val_score": 3.0},
+        ),
+        _trace(
+            task="kaggle_demo",
+            method="A",
+            seed=1,
+            scores=[2.0],
+            normalizer={"oracle_val_score": 1.0, "reference_worst_val_score": 3.0},
+        ),
+    ]
+
+    summary = BaselineEvaluator(tasks=[], methods=[]).summarize(traces)
+
+    assert summary[0]["simple_regret_mean"] == pytest.approx(0.0)
+    assert summary[0]["normalized_simple_regret_mean"] == pytest.approx(0.3)
+    assert summary[0]["normalized_simple_regret_std"] == pytest.approx(
+        np.std([0.1, 0.5], ddof=1)
+    )
+
+
+def test_cross_dataset_evaluator_summarize_falls_back_to_raw_simple_regret():
+    traces = [
+        _trace(task="lcbench_demo", method="A", seed=0, scores=[3.0, 2.0]),
+        _trace(task="lcbench_demo", method="B", seed=0, scores=[1.5]),
+    ]
+
+    summary = CrossDatasetEvaluator(tasks=[], methods=[]).summarize(traces)
+    by_method = {row["method"]: row for row in summary}
+
+    assert by_method["A"]["simple_regret_mean"] == pytest.approx(0.5)
+    assert by_method["A"]["normalized_simple_regret_mean"] == pytest.approx(0.5)
+    assert by_method["B"]["normalized_simple_regret_mean"] == pytest.approx(0.0)
 
 
 def test_kaggle_regression_task_rejects_duplicate_config_ids(tmp_path):

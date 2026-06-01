@@ -108,6 +108,50 @@ def kaggle_mlp_search_space() -> SearchSpace:
     )
 
 
+def normalized_simple_regret_reference(
+    validation_scores: list[float] | np.ndarray, percentile: float = 90
+) -> tuple[float, float]:
+    try:
+        scores = np.asarray(validation_scores, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("validation_scores must contain only finite values") from exc
+    if scores.ndim != 1:
+        raise ValueError("validation_scores must be a 1D sequence")
+    if scores.size == 0:
+        raise ValueError("validation_scores must be non-empty")
+    if not np.all(np.isfinite(scores)):
+        raise ValueError("validation_scores must contain only finite values")
+    try:
+        percentile = float(percentile)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("percentile must be in [0, 100]") from exc
+    if not math.isfinite(percentile) or not 0 <= percentile <= 100:
+        raise ValueError("percentile must be in [0, 100]")
+
+    oracle = float(np.min(scores))
+    reference = float(np.percentile(scores, percentile))
+    if reference <= oracle:
+        reference = oracle + _normalizer_eps(oracle)
+    return oracle, reference
+
+
+def normalized_simple_regret(
+    best_val_score: float, oracle: float, reference: float
+) -> float:
+    best = float(best_val_score)
+    oracle = float(oracle)
+    reference = float(reference)
+    if not all(math.isfinite(value) for value in (best, oracle, reference)):
+        raise ValueError("best_val_score, oracle, and reference must be finite")
+    if reference <= oracle:
+        reference = oracle + _normalizer_eps(oracle)
+    return float((best - oracle) / (reference - oracle))
+
+
+def _normalizer_eps(oracle: float) -> float:
+    return max(abs(float(oracle)), 1.0) * 1e-12
+
+
 class KaggleRegressionTask:
     def __init__(self, cache_path: str | Path) -> None:
         self.cache_path = Path(cache_path)
@@ -129,6 +173,10 @@ class KaggleRegressionTask:
         if self._metric_name != "RMSE":
             raise ValueError("Kaggle cache metric.name must be RMSE")
         config_records = self._validate_config_records(raw["configs"])
+        val_scores = [float(item["val_score"]) for _, item in config_records]
+        self.oracle_val_score, self.reference_worst_val_score = (
+            normalized_simple_regret_reference(val_scores, percentile=90)
+        )
         self.candidate_configs: list[Config] = []
         self._by_id: dict[str, dict[str, Any]] = {}
         for config_id, item in config_records:
@@ -239,6 +287,10 @@ class KaggleRegressionTask:
                 "task": self.slug,
                 "config_id": int(config_id) if config_id.isdecimal() else config_id,
                 "metric": self._metric_name,
+                "normalizer": {
+                    "oracle_val_score": self.oracle_val_score,
+                    "reference_worst_val_score": self.reference_worst_val_score,
+                },
             },
         )
 
