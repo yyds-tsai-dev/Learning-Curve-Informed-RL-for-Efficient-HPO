@@ -548,6 +548,7 @@ class CrossDatasetEvaluator:
 
     tasks: list[Any]
     methods: list[BaseOptimizer]
+    evaluation_tasks: list[Any] | None = None
     total_episodes: int = 150  # Total cross-dataset meta-training episodes to run
     evaluation_budget: int = 20  # Fixed per-task budget for final evaluation
     seeds: list[int] | None = None
@@ -562,8 +563,9 @@ class CrossDatasetEvaluator:
             Flattened list of OptimizationTrace objects from all methods and seeds
         """
         traces: list[OptimizationTrace] = []
+        tasks_to_evaluate = self.evaluation_tasks or self.tasks
         total_runs = len(self.seeds) * sum(
-            1 if method.supports_cross_dataset else len(self.tasks)
+            1 if method.supports_cross_dataset else len(tasks_to_evaluate)
             for method in self.methods
         )
 
@@ -579,13 +581,14 @@ class CrossDatasetEvaluator:
                             self.total_episodes,
                             seed,
                             self.evaluation_budget,
+                            evaluation_tasks=tasks_to_evaluate,
                         )
                         traces.extend(method_traces)
                         pbar.update(1)
                     else:
                         # Non-meta baselines are evaluated independently with the
                         # same fixed evaluation budget used by the frozen DQN.
-                        for task in self.tasks:
+                        for task in tasks_to_evaluate:
                             traces.append(
                                 method.optimize(task, self.evaluation_budget, seed)
                             )

@@ -310,6 +310,7 @@ class CrossDatasetHyperRLOptimizer(BaseOptimizer):
         total_episodes: int | None = None,
         seed: int = 0,
         evaluation_budget: int | None = None,
+        evaluation_tasks: list[HPOTask] | None = None,
     ) -> list[OptimizationTrace]:
         """Train on multiple tasks with shared DQN weights.
 
@@ -319,6 +320,8 @@ class CrossDatasetHyperRLOptimizer(BaseOptimizer):
                            If None, uses self.total_episodes.
             seed: Random seed
             evaluation_budget: Fixed per-task budget for meta-evaluation.
+            evaluation_tasks: Optional held-out tasks to evaluate after
+                meta-training. Defaults to the training tasks.
 
         Returns:
             List of OptimizationTrace objects, one per task
@@ -347,7 +350,7 @@ class CrossDatasetHyperRLOptimizer(BaseOptimizer):
             episode_budget=self.episode_budget,
         )
         return controller.optimize_cross_dataset(
-            total_episodes, seed, evaluation_budget
+            total_episodes, seed, evaluation_budget, evaluation_tasks
         )
 
 
@@ -363,6 +366,7 @@ class CrossDatasetLCDQNOptimizer(CrossDatasetHyperRLOptimizer):
         total_episodes: int | None = None,
         seed: int = 0,
         evaluation_budget: int | None = None,
+        evaluation_tasks: list[HPOTask] | None = None,
     ) -> list[OptimizationTrace]:
         if total_episodes is None:
             total_episodes = self.total_episodes
@@ -388,7 +392,7 @@ class CrossDatasetLCDQNOptimizer(CrossDatasetHyperRLOptimizer):
             episode_budget=self.episode_budget,
         )
         return controller.optimize_cross_dataset(
-            total_episodes, seed, evaluation_budget
+            total_episodes, seed, evaluation_budget, evaluation_tasks
         )
 
 
@@ -898,7 +902,11 @@ class _CrossDatasetDQNController:
             raise ValueError("network_type must be 'mlp' or 'lstm'")
 
     def optimize_cross_dataset(
-        self, total_episodes: int, seed: int, evaluation_budget: int = 50
+        self,
+        total_episodes: int,
+        seed: int,
+        evaluation_budget: int = 50,
+        evaluation_tasks: list[HPOTask] | None = None,
     ) -> list[OptimizationTrace]:
         """Meta-train across datasets, then evaluate with frozen weights.
 
@@ -906,6 +914,7 @@ class _CrossDatasetDQNController:
             total_episodes: Total number of episodes (each on a random dataset)
             seed: Random seed
             evaluation_budget: Fixed per-task budget for final meta-evaluation.
+            evaluation_tasks: Optional held-out tasks for final meta-evaluation.
 
         Returns:
             List of evaluation-only OptimizationTrace objects, one per task.
@@ -922,11 +931,16 @@ class _CrossDatasetDQNController:
             )
 
         runtime.online.eval()
+        tasks_to_evaluate = evaluation_tasks or self.tasks
 
         # Final meta-evaluation: frozen DQN visits every dataset once with the
         # same fixed budget. These are the only trajectories returned upstream.
         traces: list[OptimizationTrace] = []
-        for task in self.tasks:
+        for task in tasks_to_evaluate:
+            if task.name not in runtime.task_data:
+                runtime.task_data[task.name] = self._prepare_single_task_data(
+                    task, rng
+                )
             trace = self._evaluate_task(
                 task, runtime, rng, total_episodes, seed, evaluation_budget
             )
@@ -979,17 +993,22 @@ class _CrossDatasetDQNController:
     ) -> dict[str, _CrossDatasetTaskData]:
         task_data: dict[str, _CrossDatasetTaskData] = {}
         for task in self.tasks:
-            configs = _candidate_configs(task)
-            if configs is None:
-                budget_estimate = max(self.episode_budget * 8, 128)
-                configs = task.search_space.sample_many(rng, budget_estimate)
-            task_data[task.name] = _CrossDatasetTaskData(
-                task=task,
-                configs=configs,
-                action_vectors=task.search_space.to_matrix(configs),
-                meta=_meta_features(task),
-            )
+            task_data[task.name] = self._prepare_single_task_data(task, rng)
         return task_data
+
+    def _prepare_single_task_data(
+        self, task: HPOTask, rng: np.random.Generator
+    ) -> _CrossDatasetTaskData:
+        configs = _candidate_configs(task)
+        if configs is None:
+            budget_estimate = max(self.episode_budget * 8, 128)
+            configs = task.search_space.sample_many(rng, budget_estimate)
+        return _CrossDatasetTaskData(
+            task=task,
+            configs=configs,
+            action_vectors=task.search_space.to_matrix(configs),
+            meta=_meta_features(task),
+        )
 
     def _run_meta_training_episode(
         self,

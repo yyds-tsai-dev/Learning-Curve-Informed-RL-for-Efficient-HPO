@@ -1,5 +1,6 @@
 import argparse
 import csv
+import inspect
 import json
 from pathlib import Path
 import sys
@@ -23,7 +24,13 @@ from hpo_baselines.kaggle_playground import (
     normalized_simple_regret_reference,
     prepare_tabular_regression_data,
 )
-from hpo_baselines.optimizers import EvaluationRecord, OptimizationTrace, RandomSearch
+from hpo_baselines.optimizers import (
+    BaseOptimizer,
+    CrossDatasetLCDQNOptimizer,
+    EvaluationRecord,
+    OptimizationTrace,
+    RandomSearch,
+)
 from hpo_baselines.tasks import SyntheticRegressionTask
 from scripts.build_kaggle_playground_cache import positive_int
 
@@ -316,6 +323,114 @@ def test_cross_dataset_evaluator_summarize_falls_back_to_raw_simple_regret():
     assert by_method["A"]["simple_regret_mean"] == pytest.approx(0.5)
     assert by_method["A"]["normalized_simple_regret_mean"] == pytest.approx(0.5)
     assert by_method["B"]["normalized_simple_regret_mean"] == pytest.approx(0.0)
+
+
+def test_cross_dataset_lc_dqn_optimize_accepts_evaluation_tasks():
+    signature = inspect.signature(CrossDatasetLCDQNOptimizer.optimize)
+
+    assert "evaluation_tasks" in signature.parameters
+    assert signature.parameters["evaluation_tasks"].default is None
+
+
+class _RecordingCrossDatasetMethod(BaseOptimizer):
+    name = "Recording Cross"
+    supports_cross_dataset = True
+
+    def __init__(self):
+        self.calls = []
+
+    def optimize(
+        self,
+        tasks,
+        total_episodes=None,
+        seed=0,
+        evaluation_budget=None,
+        evaluation_tasks=None,
+    ):
+        self.calls.append(
+            {
+                "tasks": tasks,
+                "total_episodes": total_episodes,
+                "seed": seed,
+                "evaluation_budget": evaluation_budget,
+                "evaluation_tasks": evaluation_tasks,
+            }
+        )
+        return [
+            OptimizationTrace(
+                method=self.name,
+                task=task.name,
+                seed=seed,
+                evaluations=[
+                    EvaluationRecord(
+                        iteration=0,
+                        config={},
+                        val_score=1.0,
+                        test_score=1.0,
+                        learning_curve=[1.0],
+                    )
+                ],
+            )
+            for task in (evaluation_tasks or tasks)
+        ]
+
+
+class _RecordingSingleTaskMethod(BaseOptimizer):
+    name = "Recording Single"
+
+    def __init__(self):
+        self.calls = []
+
+    def optimize(self, task, budget, seed):
+        self.calls.append({"task": task, "budget": budget, "seed": seed})
+        return OptimizationTrace(
+            method=self.name,
+            task=task.name,
+            seed=seed,
+            evaluations=[
+                EvaluationRecord(
+                    iteration=0,
+                    config={},
+                    val_score=1.0,
+                    test_score=1.0,
+                    learning_curve=[1.0],
+                )
+            ],
+        )
+
+
+def test_cross_dataset_evaluator_separates_training_and_evaluation_tasks():
+    train_tasks = [SimpleNamespace(name="train-a"), SimpleNamespace(name="train-b")]
+    eval_tasks = [SimpleNamespace(name="eval-a"), SimpleNamespace(name="eval-b")]
+    cross_method = _RecordingCrossDatasetMethod()
+    single_method = _RecordingSingleTaskMethod()
+    evaluator = CrossDatasetEvaluator(
+        tasks=train_tasks,
+        evaluation_tasks=eval_tasks,
+        methods=[cross_method, single_method],
+        total_episodes=3,
+        evaluation_budget=2,
+        seeds=[7],
+    )
+
+    traces = evaluator.run()
+
+    assert cross_method.calls == [
+        {
+            "tasks": train_tasks,
+            "total_episodes": 3,
+            "seed": 7,
+            "evaluation_budget": 2,
+            "evaluation_tasks": eval_tasks,
+        }
+    ]
+    assert [call["task"] for call in single_method.calls] == eval_tasks
+    assert [trace.task for trace in traces] == [
+        "eval-a",
+        "eval-b",
+        "eval-a",
+        "eval-b",
+    ]
 
 
 def test_kaggle_regression_task_rejects_duplicate_config_ids(tmp_path):
