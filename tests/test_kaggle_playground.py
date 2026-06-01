@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 
 import numpy as np
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -18,49 +19,51 @@ from hpo_baselines.kaggle_playground import (
 MANIFEST = PROJECT_ROOT / "data" / "kaggle_playground" / "manifest.json"
 
 
+def _valid_kaggle_cache() -> dict[str, object]:
+    return {
+        "task": {
+            "slug": "kaggle_demo",
+            "display_name": "Kaggle Demo",
+            "meta_features": [float(i) for i in range(16)],
+        },
+        "metric": {"name": "RMSE", "direction": "minimize"},
+        "configs": [
+            {
+                "config_id": 0,
+                "config": {
+                    "learning_rate": 0.001,
+                    "weight_decay": 0.0,
+                    "hidden_width": 64,
+                    "num_layers": 1,
+                    "dropout": 0.0,
+                    "batch_size": 32,
+                },
+                "val_score": 1.25,
+                "test_score": 1.5,
+                "learning_curve": [2.0, 1.5, 1.25],
+            },
+            {
+                "config_id": 1,
+                "config": {
+                    "learning_rate": 0.01,
+                    "weight_decay": 0.0001,
+                    "hidden_width": 128,
+                    "num_layers": 2,
+                    "dropout": 0.1,
+                    "batch_size": 64,
+                },
+                "val_score": 0.75,
+                "test_score": 0.9,
+                "learning_curve": [1.4, 1.0, 0.75],
+            },
+        ],
+    }
+
+
 def test_kaggle_regression_task_reads_cache_and_meta_features(tmp_path):
     cache_path = tmp_path / "kaggle_demo.json"
     cache_path.write_text(
-        json.dumps(
-            {
-                "task": {
-                    "slug": "kaggle_demo",
-                    "display_name": "Kaggle Demo",
-                    "meta_features": [float(i) for i in range(16)],
-                },
-                "metric": {"name": "RMSE", "direction": "minimize"},
-                "configs": [
-                    {
-                        "config_id": 0,
-                        "config": {
-                            "learning_rate": 0.001,
-                            "weight_decay": 0.0,
-                            "hidden_width": 64,
-                            "num_layers": 1,
-                            "dropout": 0.0,
-                            "batch_size": 32,
-                        },
-                        "val_score": 1.25,
-                        "test_score": 1.5,
-                        "learning_curve": [2.0, 1.5, 1.25],
-                    },
-                    {
-                        "config_id": 1,
-                        "config": {
-                            "learning_rate": 0.01,
-                            "weight_decay": 0.0001,
-                            "hidden_width": 128,
-                            "num_layers": 2,
-                            "dropout": 0.1,
-                            "batch_size": 64,
-                        },
-                        "val_score": 0.75,
-                        "test_score": 0.9,
-                        "learning_curve": [1.4, 1.0, 0.75],
-                    },
-                ],
-            }
-        ),
+        json.dumps(_valid_kaggle_cache()),
         encoding="utf-8",
     )
 
@@ -73,6 +76,37 @@ def test_kaggle_regression_task_reads_cache_and_meta_features(tmp_path):
     assert result.val_score == 0.75
     assert result.test_score == 0.9
     assert result.learning_curve == [1.4, 1.0, 0.75]
+
+
+def test_kaggle_regression_task_rejects_duplicate_config_ids(tmp_path):
+    cache_path = tmp_path / "duplicate_ids.json"
+    raw = _valid_kaggle_cache()
+    raw["configs"][1]["config_id"] = 0
+    cache_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc_info:
+        KaggleRegressionTask(cache_path)
+
+    message = str(exc_info.value)
+    assert cache_path.name in message
+    assert "duplicate" in message
+    assert "config_id=0" in message
+
+
+def test_kaggle_regression_task_rejects_missing_hyperparameter_field(tmp_path):
+    cache_path = tmp_path / "missing_hyperparameter.json"
+    raw = _valid_kaggle_cache()
+    del raw["configs"][1]["config"]["dropout"]
+    cache_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc_info:
+        KaggleRegressionTask(cache_path)
+
+    message = str(exc_info.value)
+    assert cache_path.name in message
+    assert "missing" in message
+    assert "dropout" in message
+    assert "config_id=1" in message
 
 
 def test_manifest_has_fixed_15_tasks():

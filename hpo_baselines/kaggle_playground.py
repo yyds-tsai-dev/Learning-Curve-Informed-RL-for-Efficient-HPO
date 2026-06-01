@@ -126,17 +126,87 @@ class KaggleRegressionTask:
         self._metric_name = str(raw.get("metric", {}).get("name", "RMSE"))
         if self._metric_name != "RMSE":
             raise ValueError("Kaggle cache metric.name must be RMSE")
+        config_records = self._validate_config_records(raw["configs"])
         self.candidate_configs: list[Config] = []
         self._by_id: dict[str, dict[str, Any]] = {}
-        for index, item in enumerate(raw["configs"]):
-            config_id = str(item.get("config_id", item.get("id", index)))
+        for config_id, item in config_records:
             config = dict(item["config"])
-            config["__config_id__"] = (
-                int(config_id) if config_id.isdecimal() else config_id
-            )
+            config["__config_id__"] = int(config_id)
             self.candidate_configs.append(config)
             self._by_id[config_id] = item
         self.candidate_vectors = self.search_space.to_matrix(self.candidate_configs)
+
+    def _validate_config_records(
+        self, raw_configs: Any
+    ) -> list[tuple[str, dict[str, Any]]]:
+        if not raw_configs:
+            raise ValueError(f"Kaggle cache {self.cache_path} must contain configs")
+
+        required_keys = {parameter.name for parameter in self.search_space.parameters}
+        seen_ids: set[str] = set()
+        records: list[tuple[str, dict[str, Any]]] = []
+        for index, item in enumerate(raw_configs):
+            if not isinstance(item, dict):
+                raise ValueError(
+                    f"Kaggle cache {self.cache_path} config index {index} "
+                    "must be an object"
+                )
+            raw_config_id = item.get("config_id", item.get("id", index))
+            try:
+                config_id = str(int(raw_config_id))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Kaggle cache {self.cache_path} config_id={raw_config_id!r} "
+                    "must be integer-convertible"
+                ) from exc
+            if config_id in seen_ids:
+                raise ValueError(
+                    f"Kaggle cache {self.cache_path} config_id={config_id} "
+                    "is duplicate"
+                )
+            seen_ids.add(config_id)
+
+            config = item.get("config")
+            if not isinstance(config, dict):
+                raise ValueError(
+                    f"Kaggle cache {self.cache_path} config_id={config_id} "
+                    "must contain config object"
+                )
+            missing = sorted(required_keys - set(config))
+            if missing:
+                raise ValueError(
+                    f"Kaggle cache {self.cache_path} config_id={config_id} "
+                    f"missing config fields: {missing}"
+                )
+
+            for score_key in ("val_score", "test_score"):
+                self._require_finite(item.get(score_key), config_id, score_key)
+            learning_curve = item.get("learning_curve")
+            if not learning_curve:
+                raise ValueError(
+                    f"Kaggle cache {self.cache_path} config_id={config_id} "
+                    "learning_curve must be non-empty"
+                )
+            for curve_index, value in enumerate(learning_curve):
+                self._require_finite(
+                    value, config_id, f"learning_curve[{curve_index}]"
+                )
+            records.append((config_id, item))
+        return records
+
+    def _require_finite(self, value: Any, config_id: str, field: str) -> None:
+        try:
+            finite = math.isfinite(float(value))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Kaggle cache {self.cache_path} config_id={config_id} "
+                f"{field} must be finite"
+            ) from exc
+        if not finite:
+            raise ValueError(
+                f"Kaggle cache {self.cache_path} config_id={config_id} "
+                f"{field} must be finite"
+            )
 
     def evaluate(self, config: Config, seed: int = 0) -> EvalResult:
         del seed
