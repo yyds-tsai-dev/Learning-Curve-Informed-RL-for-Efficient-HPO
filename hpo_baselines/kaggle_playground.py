@@ -358,13 +358,25 @@ def build_task_cache(
             epochs=epochs_per_config,
             seed=config_seed + config_id,
         )
+        _require_finite_cache_value(result["val_score"], config_id, "val_score")
+        _require_finite_cache_value(result["test_score"], config_id, "test_score")
+        learning_curve = result["learning_curve"]
+        if not isinstance(learning_curve, list) or not learning_curve:
+            raise ValueError(
+                f"Kaggle cache config_id={config_id} "
+                "learning_curve must be a non-empty list"
+            )
+        for curve_index, value in enumerate(learning_curve):
+            _require_finite_cache_value(
+                value, config_id, f"learning_curve[{curve_index}]"
+            )
         records.append(
             {
                 "config_id": config_id,
                 "config": serializable_config,
                 "val_score": result["val_score"],
                 "test_score": result["test_score"],
-                "learning_curve": result["learning_curve"],
+                "learning_curve": learning_curve,
             }
         )
 
@@ -372,10 +384,9 @@ def build_task_cache(
         "task": {
             "slug": spec.slug,
             "name": spec.name,
-            "display_name": spec.name,
             "target_column": spec.target_column,
-            "meta_features": [float(value) for value in prepared.meta_features],
         },
+        "meta_features": [float(value) for value in prepared.meta_features],
         "metric": {
             "name": "RMSE",
             "direction": "minimize",
@@ -385,7 +396,20 @@ def build_task_cache(
     }
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+    destination.write_text(
+        json.dumps(cache, indent=2, allow_nan=False), encoding="utf-8"
+    )
+
+
+def _require_finite_cache_value(value: Any, config_id: int, field: str) -> None:
+    try:
+        finite = math.isfinite(float(value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Kaggle cache config_id={config_id} {field} must be finite"
+        ) from exc
+    if not finite:
+        raise ValueError(f"Kaggle cache config_id={config_id} {field} must be finite")
 
 
 def _json_serializable_config(config: Config) -> dict[str, int | float]:

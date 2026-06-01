@@ -9,6 +9,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+import hpo_baselines.kaggle_playground as kaggle_playground
 from hpo_baselines.kaggle_playground import (
     KaggleRegressionTask,
     KaggleTaskSpec,
@@ -25,9 +26,10 @@ def _valid_kaggle_cache() -> dict[str, object]:
     return {
         "task": {
             "slug": "kaggle_demo",
-            "display_name": "Kaggle Demo",
-            "meta_features": [float(i) for i in range(16)],
+            "name": "Kaggle Demo",
+            "target_column": "target",
         },
+        "meta_features": [float(i) for i in range(16)],
         "metric": {"name": "RMSE", "direction": "minimize"},
         "configs": [
             {
@@ -320,10 +322,13 @@ def test_build_task_cache_writes_learning_curves(tmp_path):
     )
 
     raw = json.loads(output_path.read_text(encoding="utf-8"))
-    assert raw["task"]["slug"] == "demo"
-    assert raw["task"]["name"] == "Demo"
+    assert raw["task"] == {
+        "slug": "demo",
+        "name": "Demo",
+        "target_column": "target",
+    }
+    assert len(raw["meta_features"]) == 16
     assert len(raw["configs"]) == 3
-    assert len(raw["task"]["meta_features"]) == 16
     for index, item in enumerate(raw["configs"]):
         assert item["config_id"] == index
         assert len(item["learning_curve"]) == 2
@@ -331,3 +336,49 @@ def test_build_task_cache_writes_learning_curves(tmp_path):
     task = KaggleRegressionTask(output_path)
     assert task.name == "demo"
     assert task.meta_features().shape == (16,)
+
+
+def test_build_task_cache_rejects_nonfinite_scores_before_write(tmp_path, monkeypatch):
+    train_csv = tmp_path / "train.csv"
+    rows = [
+        {
+            "id": row_id,
+            "x": float(row_id),
+            "target": float(row_id),
+        }
+        for row_id in range(30)
+    ]
+    _write_csv(train_csv, rows)
+
+    output_path = tmp_path / "cache" / "demo.json"
+    spec = KaggleTaskSpec(
+        slug="demo",
+        episode="demo",
+        name="Demo",
+        target_column="target",
+    )
+
+    def train_with_nan(*args, **kwargs):
+        return {
+            "val_score": float("nan"),
+            "test_score": 1.0,
+            "learning_curve": [2.0, 1.0],
+        }
+
+    monkeypatch.setattr(kaggle_playground, "_train_cached_mlp", train_with_nan)
+
+    with pytest.raises(ValueError) as exc_info:
+        build_task_cache(
+            spec=spec,
+            train_csv=train_csv,
+            output_path=output_path,
+            configs_per_task=1,
+            epochs_per_config=2,
+            split_seed=123,
+            config_seed=456,
+        )
+
+    message = str(exc_info.value)
+    assert "config_id=0" in message
+    assert "val_score" in message
+    assert not output_path.exists()
