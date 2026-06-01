@@ -26,7 +26,10 @@ def main() -> None:
     parser.add_argument(
         "--tasks",
         nargs="*",
-        help="Task slugs to build. Defaults to all manifest tasks in nested order.",
+        help=(
+            "Task slugs to build, or 'all'. Defaults to all manifest tasks in "
+            "nested order."
+        ),
     )
     parser.add_argument("--configs-per-task", type=int)
     parser.add_argument("--epochs-per-config", type=int)
@@ -35,7 +38,11 @@ def main() -> None:
 
     manifest = load_manifest(args.manifest)
     task_by_slug = manifest.by_slug
-    task_slugs = args.tasks if args.tasks else list(manifest.nested_order)
+    task_slugs = (
+        list(manifest.nested_order)
+        if not args.tasks or args.tasks == ["all"]
+        else args.tasks
+    )
     configs_per_task = args.configs_per_task or manifest.cache.configs_per_task
     epochs_per_config = args.epochs_per_config or manifest.cache.epochs_per_config
 
