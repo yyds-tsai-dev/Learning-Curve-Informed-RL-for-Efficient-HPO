@@ -24,6 +24,7 @@ from hpo_baselines.kaggle_playground import (
     prepare_tabular_regression_data,
 )
 from hpo_baselines.optimizers import RandomSearch
+from hpo_baselines.tasks import SyntheticRegressionTask
 from scripts.build_kaggle_playground_cache import positive_int
 
 MANIFEST = PROJECT_ROOT / "data" / "kaggle_playground" / "manifest.json"
@@ -217,6 +218,30 @@ def test_random_search_trace_preserves_kaggle_normalizer_for_summary(tmp_path):
     assert summary[0]["normalized_simple_regret_mean"] != pytest.approx(
         summary[0]["simple_regret_mean"]
     )
+
+
+def test_baseline_evaluator_handles_budget_zero_empty_traces(tmp_path):
+    task = SyntheticRegressionTask(
+        n_features=4,
+        n_train=16,
+        n_val=8,
+        n_test=8,
+        epochs=2,
+    )
+    evaluator = BaselineEvaluator(
+        tasks=[task],
+        methods=[RandomSearch()],
+        budget=0,
+        seeds=[0],
+    )
+
+    traces = evaluator.run()
+
+    assert len(traces) == 1
+    assert traces[0].evaluations == []
+    assert evaluator.summarize(traces) == []
+    assert evaluator.pairwise_comparisons(traces) == []
+    evaluator.save(traces, tmp_path)
 
 
 def test_cross_dataset_evaluator_summarize_falls_back_to_raw_simple_regret():

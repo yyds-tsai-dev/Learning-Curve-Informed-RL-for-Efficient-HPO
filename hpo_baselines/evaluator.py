@@ -17,6 +17,10 @@ from .optimizers import BaseOptimizer, OptimizationTrace
 type Row = dict[str, Any]
 
 
+def _completed_traces(traces: list[OptimizationTrace]) -> list[OptimizationTrace]:
+    return [trace for trace in traces if trace.evaluations]
+
+
 @dataclass(slots=True)
 class BaselineEvaluator:
     """Run HPO methods on one or more tasks and aggregate baseline statistics."""
@@ -44,6 +48,10 @@ class BaselineEvaluator:
         return traces
 
     def summarize(self, traces: list[OptimizationTrace]) -> list[Row]:
+        traces = _completed_traces(traces)
+        if not traces:
+            return []
+
         oracle_by_task_seed: dict[tuple[str, int], float] = {}
         for trace in traces:
             key = (trace.task, trace.seed)
@@ -160,6 +168,10 @@ class BaselineEvaluator:
 
     @staticmethod
     def pairwise_comparisons(traces: list[OptimizationTrace]) -> list[Row]:
+        traces = _completed_traces(traces)
+        if not traces:
+            return []
+
         by_task_seed_method: dict[tuple[str, int, str], float] = {}
         methods_by_task: dict[str, set[str]] = defaultdict(set)
         seeds_by_task: dict[str, set[int]] = defaultdict(set)
@@ -395,6 +407,10 @@ def _write_performance_csv(rows: list[Row], output_path: Path, x_key: str) -> No
 
 
 def _performance_rows(traces: list[OptimizationTrace], x_key: str) -> list[Row]:
+    traces = _completed_traces(traces)
+    if not traces:
+        return []
+
     normalizers = _normalizers_by_task_seed(traces)
     by_method_x: dict[tuple[str, int], list[float]] = defaultdict(list)
     for trace in traces:
@@ -573,6 +589,10 @@ class CrossDatasetEvaluator:
 
     def summarize(self, traces: list[OptimizationTrace]) -> list[Row]:
         """Summarize evaluation results (compatible with BaselineEvaluator)."""
+        traces = _completed_traces(traces)
+        if not traces:
+            return []
+
         oracle_by_task_seed: dict[tuple[str, int], float] = {}
         for trace in traces:
             key = (trace.task, trace.seed)
