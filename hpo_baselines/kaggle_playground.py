@@ -6,8 +6,12 @@ import math
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+
+from .search_space import Config, Parameter, SearchSpace
+from .tasks import EvalResult
 
 
 @dataclass(frozen=True)
@@ -87,6 +91,82 @@ def nested_task_slugs(manifest: KaggleManifest, count: int) -> list[str]:
     if count not in {1, 5, 10, 15}:
         raise ValueError("count must be one of 1, 5, 10, 15")
     return list(manifest.nested_order[:count])
+
+
+def kaggle_mlp_search_space() -> SearchSpace:
+    return SearchSpace(
+        [
+            Parameter("learning_rate", "float", low=1e-4, high=1e-1, log=True),
+            Parameter("weight_decay", "float", low=0.0, high=1e-2),
+            Parameter("hidden_width", "int", low=32, high=512, log=True),
+            Parameter("num_layers", "int", low=1, high=4),
+            Parameter("dropout", "float", low=0.0, high=0.5),
+            Parameter("batch_size", "categorical", choices=(16, 32, 64, 128, 256)),
+        ]
+    )
+
+
+class KaggleRegressionTask:
+    def __init__(self, cache_path: str | Path) -> None:
+        self.cache_path = Path(cache_path)
+        raw = json.loads(self.cache_path.read_text(encoding="utf-8"))
+        task = raw["task"]
+        self.slug = str(task["slug"])
+        self.display_name = str(task.get("display_name", task.get("name", self.slug)))
+        self.name = self.slug
+        self.search_space = kaggle_mlp_search_space()
+
+        meta_features = np.asarray(
+            task.get("meta_features", raw.get("meta_features")), dtype=float
+        )
+        if meta_features.shape != (16,):
+            raise ValueError("Kaggle cache meta_features must have shape (16,)")
+        self._meta_features = meta_features
+
+        self._metric_name = str(raw.get("metric", {}).get("name", "RMSE"))
+        if self._metric_name != "RMSE":
+            raise ValueError("Kaggle cache metric.name must be RMSE")
+        self.candidate_configs: list[Config] = []
+        self._by_id: dict[str, dict[str, Any]] = {}
+        for index, item in enumerate(raw["configs"]):
+            config_id = str(item.get("config_id", item.get("id", index)))
+            config = dict(item["config"])
+            config["__config_id__"] = (
+                int(config_id) if config_id.isdecimal() else config_id
+            )
+            self.candidate_configs.append(config)
+            self._by_id[config_id] = item
+        self.candidate_vectors = self.search_space.to_matrix(self.candidate_configs)
+
+    def evaluate(self, config: Config, seed: int = 0) -> EvalResult:
+        del seed
+        if "__config_id__" in config:
+            config_id = str(config["__config_id__"])
+        else:
+            config_id = str(self._nearest_config_id(config))
+        item = self._by_id[config_id]
+        learning_curve = [float(value) for value in item["learning_curve"]]
+        return EvalResult(
+            val_score=float(item["val_score"]),
+            test_score=float(item["test_score"]),
+            learning_curve=learning_curve,
+            metadata={
+                "task": self.slug,
+                "config_id": int(config_id) if config_id.isdecimal() else config_id,
+                "metric": self._metric_name,
+            },
+        )
+
+    def meta_features(self) -> np.ndarray:
+        return self._meta_features.copy()
+
+    def metric_name(self) -> str:
+        return self._metric_name
+
+    def _nearest_config_id(self, config: Config) -> int | str:
+        vector = self.search_space.to_vector(config)
+        distances = np.linalg.norm(self.candidate_vectors - vector, axis=1)
+        return self.candidate_configs[int(np.argmin(distances))]["__config_id__"]
 
 
 def _validate_manifest(manifest: KaggleManifest) -> None:

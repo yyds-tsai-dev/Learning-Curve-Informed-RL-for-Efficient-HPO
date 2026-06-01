@@ -1,4 +1,5 @@
 import csv
+import json
 from pathlib import Path
 import sys
 
@@ -8,12 +9,70 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from hpo_baselines.kaggle_playground import (
+    KaggleRegressionTask,
     load_manifest,
     nested_task_slugs,
     prepare_tabular_regression_data,
 )
 
 MANIFEST = PROJECT_ROOT / "data" / "kaggle_playground" / "manifest.json"
+
+
+def test_kaggle_regression_task_reads_cache_and_meta_features(tmp_path):
+    cache_path = tmp_path / "kaggle_demo.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "task": {
+                    "slug": "kaggle_demo",
+                    "display_name": "Kaggle Demo",
+                    "meta_features": [float(i) for i in range(16)],
+                },
+                "metric": {"name": "RMSE", "direction": "minimize"},
+                "configs": [
+                    {
+                        "config_id": 0,
+                        "config": {
+                            "learning_rate": 0.001,
+                            "weight_decay": 0.0,
+                            "hidden_width": 64,
+                            "num_layers": 1,
+                            "dropout": 0.0,
+                            "batch_size": 32,
+                        },
+                        "val_score": 1.25,
+                        "test_score": 1.5,
+                        "learning_curve": [2.0, 1.5, 1.25],
+                    },
+                    {
+                        "config_id": 1,
+                        "config": {
+                            "learning_rate": 0.01,
+                            "weight_decay": 0.0001,
+                            "hidden_width": 128,
+                            "num_layers": 2,
+                            "dropout": 0.1,
+                            "batch_size": 64,
+                        },
+                        "val_score": 0.75,
+                        "test_score": 0.9,
+                        "learning_curve": [1.4, 1.0, 0.75],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    task = KaggleRegressionTask(cache_path)
+    result = task.evaluate({"__config_id__": 1}, seed=123)
+
+    assert task.name == "kaggle_demo"
+    assert task.metric_name() == "RMSE"
+    assert task.meta_features().shape == (16,)
+    assert result.val_score == 0.75
+    assert result.test_score == 0.9
+    assert result.learning_curve == [1.4, 1.0, 0.75]
 
 
 def test_manifest_has_fixed_15_tasks():
