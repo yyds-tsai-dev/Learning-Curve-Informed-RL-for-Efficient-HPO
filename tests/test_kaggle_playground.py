@@ -23,7 +23,7 @@ from hpo_baselines.kaggle_playground import (
     normalized_simple_regret_reference,
     prepare_tabular_regression_data,
 )
-from hpo_baselines.optimizers import RandomSearch
+from hpo_baselines.optimizers import EvaluationRecord, OptimizationTrace, RandomSearch
 from hpo_baselines.tasks import SyntheticRegressionTask
 from scripts.build_kaggle_playground_cache import positive_int
 
@@ -242,6 +242,66 @@ def test_baseline_evaluator_handles_budget_zero_empty_traces(tmp_path):
     assert evaluator.summarize(traces) == []
     assert evaluator.pairwise_comparisons(traces) == []
     evaluator.save(traces, tmp_path)
+
+
+def test_pairwise_comparisons_uses_only_shared_completed_seeds():
+    traces = [
+        OptimizationTrace(
+            method="A",
+            task="kaggle_demo",
+            seed=0,
+            evaluations=[
+                EvaluationRecord(
+                    iteration=0,
+                    config={},
+                    val_score=1.0,
+                    test_score=1.1,
+                    learning_curve=[1.0],
+                )
+            ],
+        ),
+        OptimizationTrace(
+            method="B",
+            task="kaggle_demo",
+            seed=0,
+            evaluations=[
+                EvaluationRecord(
+                    iteration=0,
+                    config={},
+                    val_score=1.5,
+                    test_score=1.6,
+                    learning_curve=[1.5],
+                )
+            ],
+        ),
+        OptimizationTrace(
+            method="A",
+            task="kaggle_demo",
+            seed=1,
+            evaluations=[
+                EvaluationRecord(
+                    iteration=0,
+                    config={},
+                    val_score=0.8,
+                    test_score=0.9,
+                    learning_curve=[0.8],
+                )
+            ],
+        ),
+        OptimizationTrace(
+            method="B",
+            task="kaggle_demo",
+            seed=1,
+            evaluations=[],
+        ),
+    ]
+
+    rows = BaselineEvaluator(tasks=[], methods=[]).pairwise_comparisons(traces)
+
+    assert len(rows) == 1
+    assert rows[0]["method_a"] == "A"
+    assert rows[0]["method_b"] == "B"
+    assert rows[0]["runs"] == 1
 
 
 def test_cross_dataset_evaluator_summarize_falls_back_to_raw_simple_regret():

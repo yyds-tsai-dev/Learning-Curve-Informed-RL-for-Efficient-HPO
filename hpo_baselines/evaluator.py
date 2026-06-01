@@ -174,19 +174,24 @@ class BaselineEvaluator:
 
         by_task_seed_method: dict[tuple[str, int, str], float] = {}
         methods_by_task: dict[str, set[str]] = defaultdict(set)
-        seeds_by_task: dict[str, set[int]] = defaultdict(set)
+        seeds_by_task_method: dict[tuple[str, str], set[int]] = defaultdict(set)
         for trace in traces:
             by_task_seed_method[(trace.task, trace.seed, trace.method)] = (
                 trace.best_record.val_score
             )
             methods_by_task[trace.task].add(trace.method)
-            seeds_by_task[trace.task].add(trace.seed)
+            seeds_by_task_method[(trace.task, trace.method)].add(trace.seed)
 
         rows: list[Row] = []
         for task in sorted(methods_by_task):
             methods = sorted(methods_by_task[task])
-            seeds = sorted(seeds_by_task[task])
             for method_a, method_b in combinations(methods, 2):
+                seeds = sorted(
+                    seeds_by_task_method[(task, method_a)]
+                    & seeds_by_task_method[(task, method_b)]
+                )
+                if not seeds:
+                    continue
                 deltas: list[float] = []
                 wins_a = 0
                 wins_b = 0
