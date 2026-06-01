@@ -124,6 +124,21 @@ def test_kaggle_regression_task_rejects_missing_config_id(tmp_path):
     assert "config_id" in message
 
 
+def test_kaggle_regression_task_rejects_non_integral_config_id(tmp_path):
+    cache_path = tmp_path / "non_integral_config_id.json"
+    raw = _valid_kaggle_cache()
+    raw["configs"][1]["config_id"] = 1.5
+    cache_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc_info:
+        KaggleRegressionTask(cache_path)
+
+    message = str(exc_info.value)
+    assert cache_path.name in message
+    assert "config_id=1.5" in message
+    assert "integer" in message
+
+
 def test_kaggle_regression_task_rejects_non_list_learning_curve(tmp_path):
     cache_path = tmp_path / "bad_learning_curve.json"
     raw = _valid_kaggle_cache()

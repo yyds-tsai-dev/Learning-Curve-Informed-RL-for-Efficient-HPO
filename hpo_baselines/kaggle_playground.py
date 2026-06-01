@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -156,14 +157,7 @@ class KaggleRegressionTask:
                     f"Kaggle cache {self.cache_path} config index {index} "
                     "must contain config_id"
                 )
-            raw_config_id = item["config_id"]
-            try:
-                config_id = str(int(raw_config_id))
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    f"Kaggle cache {self.cache_path} config_id={raw_config_id!r} "
-                    "must be integer-convertible"
-                ) from exc
+            config_id = self._normalize_config_id(item["config_id"])
             if config_id in seen_ids:
                 raise ValueError(
                     f"Kaggle cache {self.cache_path} config_id={config_id} "
@@ -198,6 +192,21 @@ class KaggleRegressionTask:
                 )
             records.append((config_id, item))
         return records
+
+    def _normalize_config_id(self, raw_config_id: Any) -> str:
+        if isinstance(raw_config_id, bool):
+            raise ValueError(
+                f"Kaggle cache {self.cache_path} config_id={raw_config_id!r} "
+                "must be an integer or integer string"
+            )
+        if isinstance(raw_config_id, int):
+            return str(raw_config_id)
+        if isinstance(raw_config_id, str) and re.fullmatch(r"\d+", raw_config_id):
+            return str(int(raw_config_id))
+        raise ValueError(
+            f"Kaggle cache {self.cache_path} config_id={raw_config_id!r} "
+            "must be an integer or integer string"
+        )
 
     def _require_finite(self, value: Any, config_id: str, field: str) -> None:
         try:
