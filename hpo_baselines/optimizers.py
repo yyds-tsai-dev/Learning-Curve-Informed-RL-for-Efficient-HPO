@@ -825,13 +825,16 @@ def _record(
     result: EvalResult,
     extra: dict[str, Any] | None = None,
 ) -> EvaluationRecord:
+    record_extra = dict(result.metadata)
+    if extra is not None:
+        record_extra.update(extra)
     return EvaluationRecord(
         iteration=iteration,
         config=config,
         val_score=result.val_score,
         test_score=result.test_score,
         learning_curve=result.learning_curve,
-        extra=extra or {},
+        extra=record_extra,
     )
 
 

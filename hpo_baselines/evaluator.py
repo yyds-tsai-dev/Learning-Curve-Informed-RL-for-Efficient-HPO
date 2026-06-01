@@ -317,10 +317,10 @@ class BaselineEvaluator:
 
 
 def _normalized_simple_regret_or_raw(record: Any, raw_simple_regret: float) -> float:
-    metadata = getattr(record, "metadata", None)
-    if not isinstance(metadata, dict):
-        metadata = {}
-    normalizer = metadata.get("normalizer")
+    extra = getattr(record, "extra", None)
+    if not isinstance(extra, dict):
+        extra = {}
+    normalizer = extra.get("normalizer")
     if not isinstance(normalizer, dict):
         return float(raw_simple_regret)
 

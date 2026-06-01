@@ -23,6 +23,7 @@ from hpo_baselines.kaggle_playground import (
     normalized_simple_regret_reference,
     prepare_tabular_regression_data,
 )
+from hpo_baselines.optimizers import RandomSearch
 from scripts.build_kaggle_playground_cache import positive_int
 
 MANIFEST = PROJECT_ROOT / "data" / "kaggle_playground" / "manifest.json"
@@ -154,7 +155,7 @@ def _trace(
                 val_score=score,
                 test_score=score + 0.1,
                 metadata=metadata,
-                extra={},
+                extra=metadata,
             )
         )
     return SimpleNamespace(
@@ -190,6 +191,31 @@ def test_baseline_evaluator_summarize_reports_kaggle_normalized_simple_regret():
     assert summary[0]["normalized_simple_regret_mean"] == pytest.approx(0.3)
     assert summary[0]["normalized_simple_regret_std"] == pytest.approx(
         np.std([0.1, 0.5], ddof=1)
+    )
+
+
+def test_random_search_trace_preserves_kaggle_normalizer_for_summary(tmp_path):
+    cache_path = tmp_path / "kaggle_demo.json"
+    cache_path.write_text(json.dumps(_valid_kaggle_cache()), encoding="utf-8")
+
+    task = KaggleRegressionTask(cache_path)
+    trace = RandomSearch().optimize(task, budget=1, seed=1)
+    best_extra = trace.best_record.extra
+
+    assert best_extra["normalizer"] == {
+        "oracle_val_score": 0.75,
+        "reference_worst_val_score": pytest.approx(1.2),
+    }
+
+    summary = BaselineEvaluator(tasks=[task], methods=[]).summarize([trace])
+    expected_normalized = normalized_simple_regret(1.25, 0.75, 1.2)
+
+    assert summary[0]["simple_regret_mean"] == pytest.approx(0.0)
+    assert summary[0]["normalized_simple_regret_mean"] == pytest.approx(
+        expected_normalized
+    )
+    assert summary[0]["normalized_simple_regret_mean"] != pytest.approx(
+        summary[0]["simple_regret_mean"]
     )
 
 
