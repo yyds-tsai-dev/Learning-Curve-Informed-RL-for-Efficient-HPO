@@ -151,7 +151,12 @@ class KaggleRegressionTask:
                     f"Kaggle cache {self.cache_path} config index {index} "
                     "must be an object"
                 )
-            raw_config_id = item.get("config_id", item.get("id", index))
+            if "config_id" not in item:
+                raise ValueError(
+                    f"Kaggle cache {self.cache_path} config index {index} "
+                    "must contain config_id"
+                )
+            raw_config_id = item["config_id"]
             try:
                 config_id = str(int(raw_config_id))
             except (TypeError, ValueError) as exc:
@@ -182,10 +187,10 @@ class KaggleRegressionTask:
             for score_key in ("val_score", "test_score"):
                 self._require_finite(item.get(score_key), config_id, score_key)
             learning_curve = item.get("learning_curve")
-            if not learning_curve:
+            if not isinstance(learning_curve, list) or not learning_curve:
                 raise ValueError(
                     f"Kaggle cache {self.cache_path} config_id={config_id} "
-                    "learning_curve must be non-empty"
+                    "learning_curve must be a non-empty list"
                 )
             for curve_index, value in enumerate(learning_curve):
                 self._require_finite(
