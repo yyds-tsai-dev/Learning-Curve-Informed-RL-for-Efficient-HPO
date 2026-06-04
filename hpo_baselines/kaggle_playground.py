@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import csv
 import json
 import math
 import re
-from collections import Counter
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import torch
 
 from .search_space import Config, Parameter, SearchSpace
@@ -36,6 +36,8 @@ class KaggleCacheSpec:
     configs_per_task: int
     epochs_per_config: int
     seeds_per_config: int
+    max_train_rows: int | None
+    max_categories_per_column: int | None
     split_train: float
     split_validation: float
     split_test: float
@@ -69,6 +71,16 @@ def load_manifest(path: str | Path) -> KaggleManifest:
             configs_per_task=int(raw["cache"]["configs_per_task"]),
             epochs_per_config=int(raw["cache"]["epochs_per_config"]),
             seeds_per_config=int(raw["cache"]["seeds_per_config"]),
+            max_train_rows=(
+                None
+                if raw["cache"].get("max_train_rows") is None
+                else int(raw["cache"]["max_train_rows"])
+            ),
+            max_categories_per_column=(
+                None
+                if raw["cache"].get("max_categories_per_column") is None
+                else int(raw["cache"]["max_categories_per_column"])
+            ),
             split_train=float(split["train"]),
             split_validation=float(split["validation"]),
             split_test=float(split["test"]),
@@ -323,6 +335,10 @@ def _validate_manifest(manifest: KaggleManifest) -> None:
         raise ValueError("cache.epochs_per_config must be 25")
     if cache.seeds_per_config != 1:
         raise ValueError("cache.seeds_per_config must be 1")
+    if cache.max_train_rows != 2_000:
+        raise ValueError("cache.max_train_rows must be 2000")
+    if cache.max_categories_per_column != 32:
+        raise ValueError("cache.max_categories_per_column must be 32")
     if (cache.split_train, cache.split_validation, cache.split_test) != (0.8, 0.1, 0.1):
         raise ValueError("cache split must be 80/10/10")
     if cache.split_seed != 20260601:
@@ -383,6 +399,12 @@ class _TabularMLP(torch.nn.Module):
         return self.network(x).squeeze(-1)
 
 
+def _cache_training_device() -> torch.device:
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 def build_task_cache(
     spec: KaggleTaskSpec,
     train_csv: str | Path,
@@ -391,22 +413,42 @@ def build_task_cache(
     epochs_per_config: int,
     split_seed: int,
     config_seed: int,
+    max_train_rows: int | None = None,
+    max_categories_per_column: int | None = None,
 ) -> None:
     if configs_per_task <= 0:
         raise ValueError("configs_per_task must be positive")
     if epochs_per_config <= 0:
         raise ValueError("epochs_per_config must be positive")
+    if max_train_rows is not None and max_train_rows <= 0:
+        raise ValueError("max_train_rows must be positive when provided")
+    if max_categories_per_column is not None and max_categories_per_column <= 0:
+        raise ValueError("max_categories_per_column must be positive when provided")
 
+    prepare_started_at = time.time()
+    print(
+        f"{spec.slug}: preparing data with max_train_rows={max_train_rows}",
+        flush=True,
+    )
     prepared = prepare_tabular_regression_data(
         csv_path=train_csv,
         target_column=spec.target_column,
         split_seed=split_seed,
         split=(0.8, 0.1, 0.1),
+        max_train_rows=max_train_rows,
+        max_categories_per_column=max_categories_per_column,
+    )
+    print(
+        f"{spec.slug}: prepared train={prepared.x_train.shape} "
+        f"val={prepared.x_val.shape} test={prepared.x_test.shape} "
+        f"in {time.time() - prepare_started_at:.1f}s",
+        flush=True,
     )
     rng = np.random.default_rng(config_seed)
     search_space = kaggle_mlp_search_space()
     configs = search_space.sample_many(rng, configs_per_task)
     records = []
+    started_at = time.time()
     for config_id, config in enumerate(configs):
         serializable_config = _json_serializable_config(config)
         result = _train_cached_mlp(
@@ -436,6 +478,13 @@ def build_task_cache(
                 "learning_curve": learning_curve,
             }
         )
+        if (config_id + 1) % 16 == 0 or config_id + 1 == configs_per_task:
+            elapsed = time.time() - started_at
+            print(
+                f"{spec.slug}: cached {config_id + 1}/{configs_per_task} "
+                f"configs in {elapsed:.1f}s",
+                flush=True,
+            )
 
     cache = {
         "task": {
@@ -448,6 +497,12 @@ def build_task_cache(
             "name": "RMSE",
             "direction": "minimize",
             "reference_worst_percentile": 90,
+        },
+        "cache": {
+            "max_train_rows": max_train_rows,
+            "max_categories_per_column": max_categories_per_column,
+            "split": {"train": 0.8, "validation": 0.1, "test": 0.1},
+            "split_seed": split_seed,
         },
         "configs": records,
     }
@@ -489,31 +544,36 @@ def _train_cached_mlp(
     epochs: int,
     seed: int,
 ) -> dict[str, float | list[float]]:
+    device = _cache_training_device()
     torch.manual_seed(seed)
+    if device.type == "mps":
+        torch.mps.manual_seed(seed)
     model = _TabularMLP(
         input_dim=prepared.x_train.shape[1],
         hidden_width=int(config["hidden_width"]),
         num_layers=int(config["num_layers"]),
         dropout=float(config["dropout"]),
-    )
+    ).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=float(config["learning_rate"]),
         weight_decay=float(config["weight_decay"]),
     )
-    x_train = torch.as_tensor(prepared.x_train, dtype=torch.float32)
-    y_train = torch.as_tensor(prepared.y_train, dtype=torch.float32)
-    x_val = torch.as_tensor(prepared.x_val, dtype=torch.float32)
-    y_val = torch.as_tensor(prepared.y_val, dtype=torch.float32)
-    x_test = torch.as_tensor(prepared.x_test, dtype=torch.float32)
-    y_test = torch.as_tensor(prepared.y_test, dtype=torch.float32)
+    x_train = torch.as_tensor(prepared.x_train, dtype=torch.float32, device=device)
+    y_train = torch.as_tensor(prepared.y_train, dtype=torch.float32, device=device)
+    x_val = torch.as_tensor(prepared.x_val, dtype=torch.float32, device=device)
+    y_val = torch.as_tensor(prepared.y_val, dtype=torch.float32, device=device)
+    x_test = torch.as_tensor(prepared.x_test, dtype=torch.float32, device=device)
+    y_test = torch.as_tensor(prepared.y_test, dtype=torch.float32, device=device)
 
     batch_size = max(1, int(config["batch_size"]))
     learning_curve: list[float] = []
     for epoch in range(epochs):
         model.train()
-        generator = torch.Generator().manual_seed(seed + epoch)
-        permutation = torch.randperm(x_train.shape[0], generator=generator)
+        generator = torch.Generator(device=device).manual_seed(seed + epoch)
+        permutation = torch.randperm(
+            x_train.shape[0], generator=generator, device=device
+        )
         for start in range(0, x_train.shape[0], batch_size):
             batch_indices = permutation[start : start + batch_size]
             prediction = model(x_train[batch_indices])
@@ -549,49 +609,82 @@ def prepare_tabular_regression_data(
     target_column: str,
     split_seed: int,
     split: tuple[float, float, float],
+    max_train_rows: int | None = None,
+    max_categories_per_column: int | None = None,
 ) -> PreparedRegressionData:
-    rows = _read_csv_rows(Path(csv_path))
-    if target_column not in rows[0]:
+    frame = pd.read_csv(Path(csv_path), dtype=str, keep_default_na=False)
+    if frame.empty:
+        raise ValueError(f"{csv_path} has no rows")
+    if target_column not in frame.columns:
         raise ValueError(f"Target column {target_column!r} not found in {csv_path}")
+    if max_train_rows is not None and max_train_rows <= 0:
+        raise ValueError("max_train_rows must be positive when provided")
+    if max_categories_per_column is not None and max_categories_per_column <= 0:
+        raise ValueError("max_categories_per_column must be positive when provided")
 
     feature_columns = [
-        key for key in rows[0] if key != target_column and key.lower() != "id"
+        key for key in frame.columns if key != target_column and key.lower() != "id"
     ]
-    train_idx, val_idx, test_idx = _split_indices(len(rows), split_seed, split)
+    train_idx, val_idx, test_idx = _split_indices(len(frame), split_seed, split)
     numeric_columns = [
         column
         for column in feature_columns
-        if _is_numeric_column(rows, train_idx, column)
+        if _is_pandas_numeric_column(frame[column].iloc[train_idx])
     ]
     categorical_columns = [
         column for column in feature_columns if column not in numeric_columns
     ]
 
-    numeric_stats = _fit_numeric_stats(rows, train_idx, numeric_columns)
-    categorical_stats = _fit_categorical_stats(rows, train_idx, categorical_columns)
-    x, feature_names = _transform_features(
-        rows,
+    numeric_stats = _fit_pandas_numeric_stats(frame, train_idx, numeric_columns)
+    categorical_stats = _fit_pandas_categorical_stats(
+        frame, train_idx, categorical_columns, max_categories_per_column
+    )
+    feature_names = _pandas_feature_names(
         numeric_columns,
         categorical_columns,
-        numeric_stats,
         categorical_stats,
     )
+    capped_train_idx = _cap_train_indices(train_idx, max_train_rows, split_seed)
 
-    y = _target_array(rows, target_column)
+    y = _pandas_target_array(frame[target_column], target_column)
     y_mean = float(y[train_idx].mean())
     target_std = float(y[train_idx].std())
     y_std = target_std if target_std > 0.0 else 1.0
     y_scaled = (y - y_mean) / y_std
 
-    x_train = x[train_idx]
+    x_train = _transform_pandas_features(
+        frame,
+        capped_train_idx,
+        numeric_columns,
+        categorical_columns,
+        numeric_stats,
+        categorical_stats,
+        feature_names,
+    )
     meta_features = _hyp_rl_table1_meta_features(x_train)
 
     return PreparedRegressionData(
         x_train=x_train,
-        y_train=y_scaled[train_idx],
-        x_val=x[val_idx],
+        y_train=y_scaled[capped_train_idx],
+        x_val=_transform_pandas_features(
+            frame,
+            val_idx,
+            numeric_columns,
+            categorical_columns,
+            numeric_stats,
+            categorical_stats,
+            feature_names,
+        ),
         y_val=y_scaled[val_idx],
-        x_test=x[test_idx],
+        x_test=_transform_pandas_features(
+            frame,
+            test_idx,
+            numeric_columns,
+            categorical_columns,
+            numeric_stats,
+            categorical_stats,
+            feature_names,
+        ),
         y_test=y_scaled[test_idx],
         y_mean=y_mean,
         y_std=y_std,
@@ -600,56 +693,59 @@ def prepare_tabular_regression_data(
     )
 
 
-def _read_csv_rows(path: Path) -> list[dict[str, str]]:
-    with path.open(newline="", encoding="utf-8") as handle:
-        rows = list(csv.DictReader(handle))
-    if not rows:
-        raise ValueError(f"{path} has no rows")
-    return rows
+def _cap_train_indices(
+    train_idx: np.ndarray, max_train_rows: int | None, seed: int
+) -> np.ndarray:
+    if max_train_rows is None or train_idx.size <= max_train_rows:
+        return train_idx
+    rng = np.random.default_rng(seed + 17)
+    selected = rng.choice(train_idx, size=max_train_rows, replace=False)
+    return np.sort(selected)
 
 
-def _is_missing(value: object) -> bool:
-    return value is None or str(value).strip() == ""
+def _stripped_series(series: pd.Series) -> pd.Series:
+    return series.astype(str).str.strip()
 
 
-def _parse_finite_float(value: object) -> float | None:
-    if _is_missing(value):
-        return None
-    try:
-        parsed = float(str(value).strip())
-    except ValueError:
-        return None
-    return parsed if math.isfinite(parsed) else None
+def _missing_mask(values: pd.Series) -> pd.Series:
+    return values == ""
 
 
-def _is_nonfinite_number(value: object) -> bool:
-    if _is_missing(value):
-        return False
-    try:
-        parsed = float(str(value).strip())
-    except ValueError:
-        return False
-    return not math.isfinite(parsed)
+def _nonfinite_literal_mask(values: pd.Series) -> pd.Series:
+    lowered = values.str.lower()
+    return lowered.isin(
+        {
+            "nan",
+            "+nan",
+            "-nan",
+            "inf",
+            "+inf",
+            "-inf",
+            "infinity",
+            "+infinity",
+            "-infinity",
+        }
+    )
 
 
-def _is_number(value: object) -> bool:
-    return _parse_finite_float(value) is not None
+def _numeric_series(values: pd.Series) -> np.ndarray:
+    stripped = _stripped_series(values)
+    parsed = pd.to_numeric(stripped.mask(_missing_mask(stripped)), errors="coerce")
+    return parsed.to_numpy(dtype=float)
 
 
-def _is_numeric_column(
-    rows: list[dict[str, str]], train_idx: np.ndarray, column: str
-) -> bool:
-    observed_finite = False
-    for idx in train_idx:
-        value = rows[int(idx)][column]
-        if _is_missing(value):
-            continue
-        if _is_number(value):
-            observed_finite = True
-            continue
-        if not _is_nonfinite_number(value):
-            return False
-    return observed_finite
+def _is_pandas_numeric_column(values: pd.Series) -> bool:
+    stripped = _stripped_series(values)
+    missing = _missing_mask(stripped)
+    parsed = pd.to_numeric(stripped.mask(missing), errors="coerce")
+    parsed_values = parsed.to_numpy(dtype=float)
+    finite = np.isfinite(parsed_values)
+    invalid_non_numeric = (
+        ~missing
+        & pd.isna(parsed)
+        & ~_nonfinite_literal_mask(stripped)
+    )
+    return bool(finite.any() and not invalid_non_numeric.any())
 
 
 def _split_indices(
@@ -678,52 +774,42 @@ def _split_indices(
     )
 
 
-def _fit_numeric_stats(
-    rows: list[dict[str, str]],
+def _fit_pandas_numeric_stats(
+    frame: pd.DataFrame,
     train_idx: np.ndarray,
     columns: list[str],
 ) -> dict[str, tuple[float, float, float]]:
     stats: dict[str, tuple[float, float, float]] = {}
     for column in columns:
-        observed = np.asarray(
-            [
-                parsed
-                for idx in train_idx
-                if (parsed := _parse_finite_float(rows[int(idx)][column])) is not None
-            ],
-            dtype=np.float32,
-        )
-        median = float(np.median(observed)) if observed.size else 0.0
-        filled = np.asarray(
-            [
-                parsed
-                if (parsed := _parse_finite_float(rows[int(idx)][column])) is not None
-                else median
-                for idx in train_idx
-            ],
-            dtype=np.float32,
-        )
+        parsed = _numeric_series(frame[column].iloc[train_idx])
+        finite = parsed[np.isfinite(parsed)]
+        median = float(np.median(finite)) if finite.size else 0.0
+        filled = np.where(np.isfinite(parsed), parsed, median).astype(np.float32)
         mean = float(filled.mean())
         std = float(filled.std())
         stats[column] = (median, mean, std if std > 0.0 else 1.0)
     return stats
 
 
-def _fit_categorical_stats(
-    rows: list[dict[str, str]],
+def _fit_pandas_categorical_stats(
+    frame: pd.DataFrame,
     train_idx: np.ndarray,
     columns: list[str],
+    max_categories_per_column: int | None,
 ) -> dict[str, tuple[str, tuple[str, ...]]]:
     stats: dict[str, tuple[str, tuple[str, ...]]] = {}
     for column in columns:
-        train_values = [
-            str(rows[int(idx)][column]).strip()
-            for idx in train_idx
-            if not _is_missing(rows[int(idx)][column])
-        ]
-        if train_values:
-            most_frequent = Counter(train_values).most_common(1)[0][0]
-            categories = tuple(sorted(set(train_values)))
+        train_values = _stripped_series(frame[column].iloc[train_idx])
+        train_values = train_values[~_missing_mask(train_values)]
+        if not train_values.empty:
+            most_frequent = str(train_values.mode(dropna=False).iloc[0])
+            value_counts = train_values.value_counts()
+            ranked = sorted(
+                value_counts.items(), key=lambda item: (-int(item[1]), str(item[0]))
+            )
+            if max_categories_per_column is not None:
+                ranked = ranked[:max_categories_per_column]
+            categories = tuple(sorted(str(value) for value, _ in ranked))
         else:
             most_frequent = ""
             categories = ()
@@ -731,50 +817,59 @@ def _fit_categorical_stats(
     return stats
 
 
-def _transform_features(
-    rows: list[dict[str, str]],
+def _pandas_feature_names(
     numeric_columns: list[str],
     categorical_columns: list[str],
-    numeric_stats: dict[str, tuple[float, float, float]],
     categorical_stats: dict[str, tuple[str, tuple[str, ...]]],
-) -> tuple[np.ndarray, list[str]]:
+) -> list[str]:
     feature_names = list(numeric_columns)
     for column in categorical_columns:
         _, categories = categorical_stats[column]
         feature_names.extend(f"{column}={category}" for category in categories)
-
-    x = np.zeros((len(rows), len(feature_names)), dtype=np.float32)
-    for row_idx, row in enumerate(rows):
-        offset = 0
-        for column in numeric_columns:
-            median, mean, std = numeric_stats[column]
-            value = _parse_finite_float(row[column])
-            if value is None:
-                value = median
-            x[row_idx, offset] = (value - mean) / std
-            offset += 1
-
-        for column in categorical_columns:
-            most_frequent, categories = categorical_stats[column]
-            value = (
-                most_frequent
-                if _is_missing(row[column])
-                else str(row[column]).strip()
-            )
-            if value in categories:
-                x[row_idx, offset + categories.index(value)] = 1.0
-            offset += len(categories)
-    return x, feature_names
+    return feature_names
 
 
-def _target_array(rows: list[dict[str, str]], target_column: str) -> np.ndarray:
-    values = []
-    for row in rows:
-        value = row[target_column]
-        if _is_missing(value):
-            raise ValueError(f"Target column {target_column!r} contains missing values")
-        values.append(float(value))
-    return np.asarray(values, dtype=float)
+def _transform_pandas_features(
+    frame: pd.DataFrame,
+    row_idx: np.ndarray,
+    numeric_columns: list[str],
+    categorical_columns: list[str],
+    numeric_stats: dict[str, tuple[float, float, float]],
+    categorical_stats: dict[str, tuple[str, tuple[str, ...]]],
+    feature_names: list[str],
+) -> np.ndarray:
+    x = np.zeros((len(row_idx), len(feature_names)), dtype=np.float32)
+    offset = 0
+    for column in numeric_columns:
+        median, mean, std = numeric_stats[column]
+        parsed = _numeric_series(frame[column].iloc[row_idx])
+        filled = np.where(np.isfinite(parsed), parsed, median).astype(np.float32)
+        x[:, offset] = (filled - mean) / std
+        offset += 1
+
+    rows = np.arange(len(row_idx))
+    for column in categorical_columns:
+        most_frequent, categories = categorical_stats[column]
+        width = len(categories)
+        if width:
+            values = _stripped_series(frame[column].iloc[row_idx])
+            values = values.mask(_missing_mask(values), most_frequent)
+            category_to_code = {category: index for index, category in enumerate(categories)}
+            codes = values.map(category_to_code).to_numpy()
+            known = codes >= 0
+            x[rows[known], offset + codes[known].astype(int)] = 1.0
+        offset += width
+    return x
+
+
+def _pandas_target_array(series: pd.Series, target_column: str) -> np.ndarray:
+    values = _stripped_series(series)
+    if _missing_mask(values).any():
+        raise ValueError(f"Target column {target_column!r} contains missing values")
+    parsed = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
+    if not np.all(np.isfinite(parsed)):
+        raise ValueError(f"Target column {target_column!r} must contain finite values")
+    return parsed
 
 
 def _hyp_rl_table1_meta_features(x_train: np.ndarray) -> np.ndarray:

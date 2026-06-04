@@ -746,6 +746,8 @@ def test_manifest_has_fixed_15_tasks():
     assert manifest.tasks[0].slug == "playground-series-s3e1"
     assert manifest.tasks[-1].slug == "playground-series-s5e5"
     assert manifest.by_slug["playground-series-s4e12"].target_column == "Premium Amount"
+    assert manifest.cache.max_train_rows == 2_000
+    assert manifest.cache.max_categories_per_column == 32
 
 
 def test_nested_task_slugs_are_prefixes():
@@ -808,6 +810,31 @@ def test_prepare_tabular_regression_data_splits_preprocesses_and_meta_features(t
     assert prepared.meta_features[2] == prepared.x_train.shape[1]
     assert prepared.meta_features[3] == np.log1p(prepared.x_train.shape[1])
     assert np.all(np.isfinite(prepared.meta_features))
+
+
+def test_prepare_tabular_regression_data_caps_train_rows_after_split(tmp_path):
+    csv_path = tmp_path / "train.csv"
+    _write_csv(
+        csv_path,
+        [
+            {"id": row_id, "num": float(row_id), "target": float(row_id)}
+            for row_id in range(20)
+        ],
+    )
+
+    prepared = prepare_tabular_regression_data(
+        csv_path=csv_path,
+        target_column="target",
+        split_seed=123,
+        split=(0.8, 0.1, 0.1),
+        max_train_rows=5,
+    )
+
+    assert prepared.x_train.shape == (5, 1)
+    assert prepared.x_val.shape == (2, 1)
+    assert prepared.x_test.shape == (2, 1)
+    assert prepared.meta_features[0] == 5
+    assert prepared.meta_features[1] == np.log1p(5)
 
 
 def test_prepare_tabular_regression_data_fits_numeric_columns_from_train_only(tmp_path):
@@ -907,6 +934,10 @@ def test_build_task_cache_writes_learning_curves(tmp_path):
         "name": "Demo",
         "target_column": "target",
     }
+    assert raw["cache"]["max_train_rows"] is None
+    assert raw["cache"]["max_categories_per_column"] is None
+    assert raw["cache"]["split"] == {"train": 0.8, "validation": 0.1, "test": 0.1}
+    assert raw["cache"]["split_seed"] == 123
     assert len(raw["meta_features"]) == 16
     assert len(raw["configs"]) == 3
     for index, item in enumerate(raw["configs"]):
@@ -916,6 +947,30 @@ def test_build_task_cache_writes_learning_curves(tmp_path):
     task = KaggleRegressionTask(output_path)
     assert task.name == "demo"
     assert task.meta_features().shape == (16,)
+
+
+def test_prepare_tabular_regression_data_caps_categorical_cardinality(tmp_path):
+    csv_path = tmp_path / "train.csv"
+    _write_csv(
+        csv_path,
+        [
+            {"id": row_id, "cat": f"cat_{row_id % 6}", "target": float(row_id)}
+            for row_id in range(40)
+        ],
+    )
+
+    prepared = prepare_tabular_regression_data(
+        csv_path=csv_path,
+        target_column="target",
+        split_seed=123,
+        split=(0.8, 0.1, 0.1),
+        max_categories_per_column=3,
+    )
+
+    assert len(prepared.feature_names) == 3
+    assert prepared.x_train.shape[1] == 3
+    assert prepared.x_val.shape[1] == 3
+    assert prepared.x_test.shape[1] == 3
 
 
 def test_build_task_cache_rejects_non_positive_configs_per_task(tmp_path):

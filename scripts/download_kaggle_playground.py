@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+from zipfile import ZipFile
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -57,14 +58,16 @@ def main() -> None:
                 "kaggle",
                 "competitions",
                 "download",
-                "-c",
                 spec.slug,
                 "-p",
                 str(out_dir),
-                "--unzip",
             ],
             check=True,
         )
+        zip_path = out_dir / f"{spec.slug}.zip"
+        if zip_path.exists():
+            with ZipFile(zip_path) as archive:
+                archive.extractall(out_dir)
 
 
 if __name__ == "__main__":

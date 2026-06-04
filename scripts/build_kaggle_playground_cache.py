@@ -40,6 +40,8 @@ def main() -> None:
     )
     parser.add_argument("--configs-per-task", type=positive_int)
     parser.add_argument("--epochs-per-config", type=positive_int)
+    parser.add_argument("--max-train-rows", type=positive_int)
+    parser.add_argument("--max-categories-per-column", type=positive_int)
     parser.add_argument("--config-seed", type=int, default=20260601)
     args = parser.parse_args()
 
@@ -60,6 +62,16 @@ def main() -> None:
         if args.epochs_per_config is None
         else args.epochs_per_config
     )
+    max_train_rows = (
+        manifest.cache.max_train_rows
+        if args.max_train_rows is None
+        else args.max_train_rows
+    )
+    max_categories_per_column = (
+        manifest.cache.max_categories_per_column
+        if args.max_categories_per_column is None
+        else args.max_categories_per_column
+    )
 
     for slug in task_slugs:
         if slug not in task_by_slug:
@@ -73,6 +85,8 @@ def main() -> None:
             epochs_per_config=epochs_per_config,
             split_seed=manifest.cache.split_seed,
             config_seed=args.config_seed,
+            max_train_rows=max_train_rows,
+            max_categories_per_column=max_categories_per_column,
         )
 
 

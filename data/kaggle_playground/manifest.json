@@ -9,6 +9,8 @@
     "configs_per_task": 256,
     "epochs_per_config": 25,
     "seeds_per_config": 1,
+    "max_train_rows": 2000,
+    "max_categories_per_column": 32,
     "split": {
       "train": 0.8,
       "validation": 0.1,

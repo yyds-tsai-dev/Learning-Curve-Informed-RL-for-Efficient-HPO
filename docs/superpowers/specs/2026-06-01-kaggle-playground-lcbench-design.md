@@ -85,8 +85,19 @@ Each task cache contains:
 - 25 epochs per configuration
 - 1 training seed per configuration
 - fixed 80% train, 10% validation, 10% held-out test split from Kaggle `train.csv`
+- deterministic capped MLP fitting subset: at most 2,000 rows from the training split
+- categorical cardinality cap: keep at most the top 32 training-split categories per categorical column
 
 The hidden Kaggle competition test set is not used because labels are unavailable. The held-out test score comes from the internal 10% test split.
+
+The capped training subset controls cache-generation runtime. Preprocessing
+statistics are fitted on the fixed training split; MLP fitting and task
+meta-features use the deterministic capped training subset. Validation scores,
+test scores, per-task oracle, and per-task reference-worst are all tied to the
+same fixed task split/cache table. Validation and held-out test splits are not
+capped. The categorical cap prevents high-cardinality identifiers, dates, and
+free-form strings from exploding the one-hot feature space; values outside the
+top categories are encoded as all-zero for that source column.
 
 The shared MLP HPO search space should cover:
 
@@ -126,7 +137,7 @@ Existing cross-dataset Hyp-RL and LC-DQN already consume task meta-features thro
 
 Kaggle task meta-features must use only dataset and preprocessing statistics, not HPO cache performance or target distribution statistics. They must not include oracle scores, reference-worst scores, validation RMSE summaries, test RMSE summaries, winning configuration properties, target moments, or any other value derived from the cached HPO outcomes.
 
-Use this fixed 16-dimensional vector, matching the Hyp-RL paper Table 1 descriptor style. Counts use the training split only. Feature counts and skewness/kurtosis summaries use the fully preprocessed feature matrix after numeric imputation/scaling and categorical one-hot encoding.
+Use this fixed 16-dimensional vector, matching the Hyp-RL paper Table 1 descriptor style. Counts use the deterministic capped training subset used for MLP fitting. Feature counts and skewness/kurtosis summaries use the fully preprocessed feature matrix after numeric imputation/scaling and categorical one-hot encoding.
 
 | Index | Feature |
 | --- | --- |
