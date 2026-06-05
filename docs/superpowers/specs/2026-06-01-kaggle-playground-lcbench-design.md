@@ -85,8 +85,19 @@ Each task cache contains:
 - 25 epochs per configuration
 - 1 training seed per configuration
 - fixed 80% train, 10% validation, 10% held-out test split from Kaggle `train.csv`
+- deterministic capped MLP fitting subset: at most 2,000 rows from the training split
+- categorical cardinality cap: keep at most the top 32 training-split categories per categorical column
 
 The hidden Kaggle competition test set is not used because labels are unavailable. The held-out test score comes from the internal 10% test split.
+
+The capped training subset controls cache-generation runtime. Preprocessing
+statistics are fitted on the fixed training split; MLP fitting and task
+meta-features use the deterministic capped training subset. Validation scores,
+test scores, per-task oracle, and per-task reference-worst are all tied to the
+same fixed task split/cache table. Validation and held-out test splits are not
+capped. The categorical cap prevents high-cardinality identifiers, dates, and
+free-form strings from exploding the one-hot feature space; values outside the
+top categories are encoded as all-zero for that source column.
 
 The shared MLP HPO search space should cover:
 
@@ -124,22 +135,32 @@ Kaggle regression tasks should expose task-level meta-features through `meta_fea
 
 Existing cross-dataset Hyp-RL and LC-DQN already consume task meta-features through the shared `_meta_features(task)` helper. The helper reads `task.meta_features()` when available and L2-normalizes the returned vector before the cross-dataset controller uses it. With the LSTM network, the meta-feature vector initializes the LSTM hidden and cell states. The same vector is also included in each history row.
 
-Kaggle task meta-features must use only dataset and preprocessing statistics, not HPO cache performance. They must not include oracle scores, reference-worst scores, validation RMSE summaries, test RMSE summaries, winning configuration properties, or any other value derived from the cached HPO outcomes.
+Kaggle task meta-features must use only dataset and preprocessing statistics, not HPO cache performance or target distribution statistics. They must not include oracle scores, reference-worst scores, validation RMSE summaries, test RMSE summaries, winning configuration properties, target moments, or any other value derived from the cached HPO outcomes.
 
-Use this fixed 8-dimensional vector:
+Use this fixed 16-dimensional vector, matching the Hyp-RL paper Table 1 descriptor style. Counts use the deterministic capped training subset used for MLP fitting. Feature counts and skewness/kurtosis summaries use the fully preprocessed feature matrix after numeric imputation/scaling and categorical one-hot encoding.
 
 | Index | Feature |
 | --- | --- |
-| 0 | `log1p(n_train_rows)` |
-| 1 | `log1p(n_raw_features)` |
-| 2 | `log1p(n_numeric_features)` |
-| 3 | `log1p(n_categorical_features)` |
-| 4 | `log1p(n_processed_features_after_onehot)` |
-| 5 | `missing_value_fraction` |
-| 6 | `categorical_feature_fraction` |
-| 7 | `log1p(target_std_on_train_split)` |
+| 0 | Number of Instances |
+| 1 | Log Number of Instances |
+| 2 | Number of Features |
+| 3 | Log Number of Features |
+| 4 | Data Set Dimensionality |
+| 5 | Log Data Set Dimensionality |
+| 6 | Inverse Data Set Dimensionality |
+| 7 | Log Inverse Data Set Dimensionality |
+| 8 | Kurtosis Min |
+| 9 | Kurtosis Max |
+| 10 | Kurtosis Mean |
+| 11 | Kurtosis Standard Deviation |
+| 12 | Skewness Min |
+| 13 | Skewness Max |
+| 14 | Skewness Mean |
+| 15 | Skewness Standard Deviation |
 
-Hyp-RL and LC-DQN use this same 8-dimensional task meta-feature vector. LC-DQN's additional information comes only from learning-curve and derivative features observed after evaluating configurations.
+`Number of Instances` is `n_train_rows`. `Number of Features` is the processed feature dimension visible to the model after one-hot encoding. `Data Set Dimensionality` is `n_features / max(n_instances, 1)`, and inverse dimensionality is `n_instances / max(n_features, 1)`. Log features use `log1p`. Skewness and excess kurtosis are computed per processed feature column on `x_train`; zero-variance columns contribute `0` for both skewness and kurtosis. Summary standard deviations use population standard deviation.
+
+Hyp-RL and LC-DQN use this same 16-dimensional task meta-feature vector. LC-DQN's additional information comes only from learning-curve and derivative features observed after evaluating configurations.
 
 ## Task Adapter
 
@@ -277,7 +298,7 @@ Test coverage should verify:
 
 - manifest parsing
 - preprocessing handles numeric and categorical columns
-- Kaggle task meta-features contain the fixed 8-dimensional dataset/preprocessing vector
+- Kaggle task meta-features contain the fixed 16-dimensional Hyp-RL Table 1 style dataset/preprocessing vector
 - Kaggle task meta-features do not depend on HPO cache scores
 - cache builder writes valid learning curves and metadata
 - `KaggleRegressionTask.evaluate` returns cached `EvalResult` values

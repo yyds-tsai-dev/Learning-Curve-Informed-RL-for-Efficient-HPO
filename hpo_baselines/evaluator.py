@@ -11,9 +11,14 @@ from typing import Any
 
 from tqdm import tqdm
 
+from .kaggle_playground import normalized_simple_regret
 from .optimizers import BaseOptimizer, OptimizationTrace
 
 type Row = dict[str, Any]
+
+
+def _completed_traces(traces: list[OptimizationTrace]) -> list[OptimizationTrace]:
+    return [trace for trace in traces if trace.evaluations]
 
 
 @dataclass(slots=True)
@@ -43,6 +48,10 @@ class BaselineEvaluator:
         return traces
 
     def summarize(self, traces: list[OptimizationTrace]) -> list[Row]:
+        traces = _completed_traces(traces)
+        if not traces:
+            return []
+
         oracle_by_task_seed: dict[tuple[str, int], float] = {}
         for trace in traces:
             key = (trace.task, trace.seed)
@@ -55,6 +64,7 @@ class BaselineEvaluator:
         for trace in traces:
             best = trace.best_record
             oracle = oracle_by_task_seed[(trace.task, trace.seed)]
+            simple_regret = best.val_score - oracle
             runs.append(
                 {
                     "task": trace.task,
@@ -62,7 +72,10 @@ class BaselineEvaluator:
                     "seed": trace.seed,
                     "best_val_score": best.val_score,
                     "best_test_score": best.test_score,
-                    "simple_regret": best.val_score - oracle,
+                    "simple_regret": simple_regret,
+                    "normalized_simple_regret": _normalized_simple_regret_or_raw(
+                        best, simple_regret
+                    ),
                     "best_iteration": best.iteration,
                 }
             )
@@ -84,6 +97,12 @@ class BaselineEvaluator:
                     "best_test_score_std": _std(rows, "best_test_score"),
                     "simple_regret_mean": _mean(rows, "simple_regret"),
                     "simple_regret_std": _std(rows, "simple_regret"),
+                    "normalized_simple_regret_mean": _mean(
+                        rows, "normalized_simple_regret"
+                    ),
+                    "normalized_simple_regret_std": _std(
+                        rows, "normalized_simple_regret"
+                    ),
                     "best_iteration_mean": _mean(rows, "best_iteration"),
                 }
             )
@@ -149,21 +168,30 @@ class BaselineEvaluator:
 
     @staticmethod
     def pairwise_comparisons(traces: list[OptimizationTrace]) -> list[Row]:
+        traces = _completed_traces(traces)
+        if not traces:
+            return []
+
         by_task_seed_method: dict[tuple[str, int, str], float] = {}
         methods_by_task: dict[str, set[str]] = defaultdict(set)
-        seeds_by_task: dict[str, set[int]] = defaultdict(set)
+        seeds_by_task_method: dict[tuple[str, str], set[int]] = defaultdict(set)
         for trace in traces:
             by_task_seed_method[(trace.task, trace.seed, trace.method)] = (
                 trace.best_record.val_score
             )
             methods_by_task[trace.task].add(trace.method)
-            seeds_by_task[trace.task].add(trace.seed)
+            seeds_by_task_method[(trace.task, trace.method)].add(trace.seed)
 
         rows: list[Row] = []
         for task in sorted(methods_by_task):
             methods = sorted(methods_by_task[task])
-            seeds = sorted(seeds_by_task[task])
             for method_a, method_b in combinations(methods, 2):
+                seeds = sorted(
+                    seeds_by_task_method[(task, method_a)]
+                    & seeds_by_task_method[(task, method_b)]
+                )
+                if not seeds:
+                    continue
                 deltas: list[float] = []
                 wins_a = 0
                 wins_b = 0
@@ -305,6 +333,22 @@ class BaselineEvaluator:
         return "\n".join(lines) + "\n"
 
 
+def _normalized_simple_regret_or_raw(record: Any, raw_simple_regret: float) -> float:
+    extra = getattr(record, "extra", None)
+    if not isinstance(extra, dict):
+        extra = {}
+    normalizer = extra.get("normalizer")
+    if not isinstance(normalizer, dict):
+        return float(raw_simple_regret)
+
+    try:
+        oracle = float(normalizer["oracle_val_score"])
+        reference = float(normalizer["reference_worst_val_score"])
+        return normalized_simple_regret(float(record.val_score), oracle, reference)
+    except (KeyError, TypeError, ValueError):
+        return float(raw_simple_regret)
+
+
 def _mean(rows: list[Row], key: str) -> float:
     return float(mean(float(row[key]) for row in rows))
 
@@ -368,21 +412,31 @@ def _write_performance_csv(rows: list[Row], output_path: Path, x_key: str) -> No
 
 
 def _performance_rows(traces: list[OptimizationTrace], x_key: str) -> list[Row]:
+    traces = _completed_traces(traces)
+    if not traces:
+        return []
+
     normalizers = _normalizers_by_task_seed(traces)
     by_method_x: dict[tuple[str, int], list[float]] = defaultdict(list)
     for trace in traces:
         best_seen = float("inf")
-        oracle, denom = normalizers[(trace.task, trace.seed)]
+        best_record = None
+        oracle, _denom = normalizers[(trace.task, trace.seed)]
         train_cost = _meta_training_cost(trace)
         for record in sorted(trace.evaluations, key=lambda item: item.iteration):
-            best_seen = min(best_seen, float(record.val_score))
+            if float(record.val_score) < best_seen:
+                best_seen = float(record.val_score)
+                best_record = record
             eval_budget = int(record.iteration) + 1
             x_value = (
                 train_cost + eval_budget
                 if x_key == "total_consumed_evals"
                 else eval_budget
             )
-            normalized_simple_regret = (best_seen - oracle) / denom
+            simple_regret = best_seen - oracle
+            normalized_simple_regret = _normalized_simple_regret_or_raw(
+                best_record or record, simple_regret
+            )
             by_method_x[(trace.method, x_value)].append(normalized_simple_regret)
 
     rows: list[Row] = []
@@ -500,6 +554,7 @@ class CrossDatasetEvaluator:
 
     tasks: list[Any]
     methods: list[BaseOptimizer]
+    evaluation_tasks: list[Any] | None = None
     total_episodes: int = 150  # Total cross-dataset meta-training episodes to run
     evaluation_budget: int = 20  # Fixed per-task budget for final evaluation
     seeds: list[int] | None = None
@@ -514,8 +569,11 @@ class CrossDatasetEvaluator:
             Flattened list of OptimizationTrace objects from all methods and seeds
         """
         traces: list[OptimizationTrace] = []
+        tasks_to_evaluate = (
+            self.tasks if self.evaluation_tasks is None else self.evaluation_tasks
+        )
         total_runs = len(self.seeds) * sum(
-            1 if method.supports_cross_dataset else len(self.tasks)
+            1 if method.supports_cross_dataset else len(tasks_to_evaluate)
             for method in self.methods
         )
 
@@ -526,18 +584,27 @@ class CrossDatasetEvaluator:
                 for method in self.methods:
                     if method.supports_cross_dataset:
                         # Method returns list of traces (cross-dataset style)
-                        method_traces = method.optimize(
-                            self.tasks,
-                            self.total_episodes,
-                            seed,
-                            self.evaluation_budget,
-                        )
+                        if self.evaluation_tasks is None:
+                            method_traces = method.optimize(
+                                self.tasks,
+                                self.total_episodes,
+                                seed,
+                                self.evaluation_budget,
+                            )
+                        else:
+                            method_traces = method.optimize(
+                                self.tasks,
+                                self.total_episodes,
+                                seed,
+                                self.evaluation_budget,
+                                evaluation_tasks=tasks_to_evaluate,
+                            )
                         traces.extend(method_traces)
                         pbar.update(1)
                     else:
                         # Non-meta baselines are evaluated independently with the
                         # same fixed evaluation budget used by the frozen DQN.
-                        for task in self.tasks:
+                        for task in tasks_to_evaluate:
                             traces.append(
                                 method.optimize(task, self.evaluation_budget, seed)
                             )
@@ -546,6 +613,10 @@ class CrossDatasetEvaluator:
 
     def summarize(self, traces: list[OptimizationTrace]) -> list[Row]:
         """Summarize evaluation results (compatible with BaselineEvaluator)."""
+        traces = _completed_traces(traces)
+        if not traces:
+            return []
+
         oracle_by_task_seed: dict[tuple[str, int], float] = {}
         for trace in traces:
             key = (trace.task, trace.seed)
@@ -558,6 +629,7 @@ class CrossDatasetEvaluator:
         for trace in traces:
             best = trace.best_record
             oracle = oracle_by_task_seed[(trace.task, trace.seed)]
+            simple_regret = best.val_score - oracle
             runs.append(
                 {
                     "task": trace.task,
@@ -565,7 +637,10 @@ class CrossDatasetEvaluator:
                     "seed": trace.seed,
                     "best_val_score": best.val_score,
                     "best_test_score": best.test_score,
-                    "simple_regret": best.val_score - oracle,
+                    "simple_regret": simple_regret,
+                    "normalized_simple_regret": _normalized_simple_regret_or_raw(
+                        best, simple_regret
+                    ),
                     "best_iteration": best.iteration,
                 }
             )
@@ -587,6 +662,12 @@ class CrossDatasetEvaluator:
                     "best_test_score_std": _std(rows, "best_test_score"),
                     "simple_regret_mean": _mean(rows, "simple_regret"),
                     "simple_regret_std": _std(rows, "simple_regret"),
+                    "normalized_simple_regret_mean": _mean(
+                        rows, "normalized_simple_regret"
+                    ),
+                    "normalized_simple_regret_std": _std(
+                        rows, "normalized_simple_regret"
+                    ),
                     "best_iteration_mean": _mean(rows, "best_iteration"),
                 }
             )
@@ -627,6 +708,26 @@ class CrossDatasetEvaluator:
                 writer.writeheader()
                 writer.writerows(summary)
         _save_budget_performance_outputs(traces, output_dir)
+        pairwise = BaselineEvaluator.pairwise_comparisons(traces)
+        with (output_dir / "pairwise_comparisons.csv").open(
+            "w", newline="", encoding="utf-8"
+        ) as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=[
+                    "task",
+                    "method_a",
+                    "method_b",
+                    "mean_delta_a_minus_b",
+                    "std_delta",
+                    "wins_a",
+                    "wins_b",
+                    "ties",
+                    "runs",
+                ],
+            )
+            writer.writeheader()
+            writer.writerows(pairwise)
         (output_dir / "conclusion.md").write_text(
             BaselineEvaluator.conclusion(summary), encoding="utf-8"
         )

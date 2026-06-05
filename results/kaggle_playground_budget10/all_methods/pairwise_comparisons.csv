@@ -1,0 +1,91 @@
+task,method_a,method_b,mean_delta_a_minus_b,std_delta,wins_a,wins_b,ties,runs
+playground-series-s3e1,Bayesian Optimization,CrossDataset-HyperRL,-0.0007454987426033898,0.003249636793791333,2,3,0,5
+playground-series-s3e1,Bayesian Optimization,CrossDataset-LC-DQN,-0.0002510753483763839,0.004809050746498407,3,1,1,5
+playground-series-s3e1,Bayesian Optimization,Random Search,-0.00525420758939874,0.003126951764527005,4,0,1,5
+playground-series-s3e1,CrossDataset-HyperRL,CrossDataset-LC-DQN,0.000494423394227006,0.00496253305667138,3,2,0,5
+playground-series-s3e1,CrossDataset-HyperRL,Random Search,-0.004508708846795351,0.0030733427091778373,5,0,0,5
+playground-series-s3e1,CrossDataset-LC-DQN,Random Search,-0.005003132241022357,0.002042857528579282,5,0,0,5
+playground-series-s3e11,Bayesian Optimization,CrossDataset-HyperRL,-0.011557624952612856,0.04308644131843073,3,2,0,5
+playground-series-s3e11,Bayesian Optimization,CrossDataset-LC-DQN,-0.08522468246340509,0.09428240087339115,4,1,0,5
+playground-series-s3e11,Bayesian Optimization,Random Search,-0.034956204204600994,0.03534264246485448,4,0,1,5
+playground-series-s3e11,CrossDataset-HyperRL,CrossDataset-LC-DQN,-0.07366705751079224,0.06122941433938777,4,0,1,5
+playground-series-s3e11,CrossDataset-HyperRL,Random Search,-0.023398579251988138,0.06414606642983803,3,2,0,5
+playground-series-s3e11,CrossDataset-LC-DQN,Random Search,0.050268478258804095,0.1112319895549422,1,3,1,5
+playground-series-s3e14,Bayesian Optimization,CrossDataset-HyperRL,0.773056609739001,2.2763331911269833,2,3,0,5
+playground-series-s3e14,Bayesian Optimization,CrossDataset-LC-DQN,-0.3269743437425404,1.6817513517631593,2,3,0,5
+playground-series-s3e14,Bayesian Optimization,Random Search,0.08658042550066511,1.904729390168924,2,3,0,5
+playground-series-s3e14,CrossDataset-HyperRL,CrossDataset-LC-DQN,-1.1000309534815416,3.275200381114178,2,1,2,5
+playground-series-s3e14,CrossDataset-HyperRL,Random Search,-0.6864761842383359,4.047250676967518,3,2,0,5
+playground-series-s3e14,CrossDataset-LC-DQN,Random Search,0.41355476924320556,1.6537623931704004,1,4,0,5
+playground-series-s3e16,Bayesian Optimization,CrossDataset-HyperRL,-0.004733711166437083,0.004586849196729865,5,0,0,5
+playground-series-s3e16,Bayesian Optimization,CrossDataset-LC-DQN,0.0004070944544579902,0.005052627046358733,3,2,0,5
+playground-series-s3e16,Bayesian Optimization,Random Search,-0.0010605632165829881,0.003052716472637464,2,2,1,5
+playground-series-s3e16,CrossDataset-HyperRL,CrossDataset-LC-DQN,0.005140805620895072,0.006284384052811231,0,4,1,5
+playground-series-s3e16,CrossDataset-HyperRL,Random Search,0.003673147949854094,0.006675726411896197,2,3,0,5
+playground-series-s3e16,CrossDataset-LC-DQN,Random Search,-0.0014676576710409782,0.004266095367290698,4,1,0,5
+playground-series-s3e25,Bayesian Optimization,CrossDataset-HyperRL,0.0014717847505288707,0.0032692605993051163,2,3,0,5
+playground-series-s3e25,Bayesian Optimization,CrossDataset-LC-DQN,0.0010965275767486737,0.00612880398004008,2,2,1,5
+playground-series-s3e25,Bayesian Optimization,Random Search,-0.00030738233941853823,0.005263536852363066,3,2,0,5
+playground-series-s3e25,CrossDataset-HyperRL,CrossDataset-LC-DQN,-0.00037525717378019687,0.005738860433403859,2,1,2,5
+playground-series-s3e25,CrossDataset-HyperRL,Random Search,-0.0017791670899474088,0.004355863638739493,3,2,0,5
+playground-series-s3e25,CrossDataset-LC-DQN,Random Search,-0.001403909916167212,0.0034027767914277802,3,2,0,5
+playground-series-s3e6,Bayesian Optimization,CrossDataset-HyperRL,-14963.511669773468,41283.24901522958,3,2,0,5
+playground-series-s3e6,Bayesian Optimization,CrossDataset-LC-DQN,-1116.596663550689,58835.73286357003,3,2,0,5
+playground-series-s3e6,Bayesian Optimization,Random Search,-12688.142841615849,10450.618368748532,4,0,1,5
+playground-series-s3e6,CrossDataset-HyperRL,CrossDataset-LC-DQN,13846.91500622278,47084.95268247239,1,3,1,5
+playground-series-s3e6,CrossDataset-HyperRL,Random Search,2275.3688281576206,41543.35746800177,3,2,0,5
+playground-series-s3e6,CrossDataset-LC-DQN,Random Search,-11571.546178065159,50309.59566887979,2,3,0,5
+playground-series-s3e8,Bayesian Optimization,CrossDataset-HyperRL,-19.212840777941324,38.877357741542205,3,2,0,5
+playground-series-s3e8,Bayesian Optimization,CrossDataset-LC-DQN,-0.9609198552484258,30.14373719700296,2,3,0,5
+playground-series-s3e8,Bayesian Optimization,Random Search,-15.480684777988198,24.209710664391768,2,0,3,5
+playground-series-s3e8,CrossDataset-HyperRL,CrossDataset-LC-DQN,18.251920922692896,28.06475334601388,0,3,2,5
+playground-series-s3e8,CrossDataset-HyperRL,Random Search,3.7321559999531244,58.41200624809855,3,2,0,5
+playground-series-s3e8,CrossDataset-LC-DQN,Random Search,-14.519764922739773,45.91284698981628,4,1,0,5
+playground-series-s3e9,Bayesian Optimization,CrossDataset-HyperRL,0.007038463430581387,0.08103072962750393,2,3,0,5
+playground-series-s3e9,Bayesian Optimization,CrossDataset-LC-DQN,0.015048399870676476,0.04768456225285311,2,3,0,5
+playground-series-s3e9,Bayesian Optimization,Random Search,0.013537743621254705,0.041793377180009694,1,2,2,5
+playground-series-s3e9,CrossDataset-HyperRL,CrossDataset-LC-DQN,0.00800993644009509,0.04646089764429389,2,1,2,5
+playground-series-s3e9,CrossDataset-HyperRL,Random Search,0.006499280190673318,0.0794808034893377,2,3,0,5
+playground-series-s3e9,CrossDataset-LC-DQN,Random Search,-0.0015106562494217712,0.04451598334228199,2,3,0,5
+playground-series-s4e12,Bayesian Optimization,CrossDataset-HyperRL,-0.1033910727651346,2.1110449880494357,3,2,0,5
+playground-series-s4e12,Bayesian Optimization,CrossDataset-LC-DQN,1.4414344236326087,3.163210912583073,1,3,1,5
+playground-series-s4e12,Bayesian Optimization,Random Search,1.1305190161808696,2.3632748702611224,2,3,0,5
+playground-series-s4e12,CrossDataset-HyperRL,CrossDataset-LC-DQN,1.5448254963977432,4.411638048176958,3,2,0,5
+playground-series-s4e12,CrossDataset-HyperRL,Random Search,1.2339100889460042,3.5108669588522545,2,3,0,5
+playground-series-s4e12,CrossDataset-LC-DQN,Random Search,-0.3109154074517392,1.6880905783975155,3,2,0,5
+playground-series-s4e4,Bayesian Optimization,CrossDataset-HyperRL,-0.008156477196782896,0.017011532882078864,4,1,0,5
+playground-series-s4e4,Bayesian Optimization,CrossDataset-LC-DQN,-0.00033074811083495527,0.019375411932027877,2,3,0,5
+playground-series-s4e4,Bayesian Optimization,Random Search,-0.010920654272901897,0.020820022074424207,3,1,1,5
+playground-series-s4e4,CrossDataset-HyperRL,CrossDataset-LC-DQN,0.007825729085947941,0.016479856949426906,1,2,2,5
+playground-series-s4e4,CrossDataset-HyperRL,Random Search,-0.002764177076119001,0.01537468137778411,4,1,0,5
+playground-series-s4e4,CrossDataset-LC-DQN,Random Search,-0.010589906162066943,0.025193593333996057,4,1,0,5
+playground-series-s4e5,Bayesian Optimization,CrossDataset-HyperRL,-5.5435716895956e-05,0.00025356116867502037,3,2,0,5
+playground-series-s4e5,Bayesian Optimization,CrossDataset-LC-DQN,-6.599094654384866e-05,0.00018083059977934301,4,1,0,5
+playground-series-s4e5,Bayesian Optimization,Random Search,-6.892641921171297e-05,0.0002066038937026333,3,1,1,5
+playground-series-s4e5,CrossDataset-HyperRL,CrossDataset-LC-DQN,-1.0555229647892655e-05,0.00012367446373721347,2,2,1,5
+playground-series-s4e5,CrossDataset-HyperRL,Random Search,-1.3490702315756969e-05,0.0002681536980760906,3,2,0,5
+playground-series-s4e5,CrossDataset-LC-DQN,Random Search,-2.935472667864314e-06,0.00016617041363184117,2,2,1,5
+playground-series-s4e9,Bayesian Optimization,CrossDataset-HyperRL,-445.6423062777496,508.6585476483411,3,1,1,5
+playground-series-s4e9,Bayesian Optimization,CrossDataset-LC-DQN,-621.855679307005,1322.7798901295582,2,2,1,5
+playground-series-s4e9,Bayesian Optimization,Random Search,-67.6928115849034,511.27220638941293,3,2,0,5
+playground-series-s4e9,CrossDataset-HyperRL,CrossDataset-LC-DQN,-176.2133730292553,1185.9872615555698,2,1,2,5
+playground-series-s4e9,CrossDataset-HyperRL,Random Search,377.9494946928462,705.9150668548655,1,4,0,5
+playground-series-s4e9,CrossDataset-LC-DQN,Random Search,554.1628677221015,1103.467815196873,2,3,0,5
+playground-series-s5e2,Bayesian Optimization,CrossDataset-HyperRL,0.13851062872027314,0.27090365367657726,1,4,0,5
+playground-series-s5e2,Bayesian Optimization,CrossDataset-LC-DQN,0.08158939594603823,0.24035507731623337,3,2,0,5
+playground-series-s5e2,Bayesian Optimization,Random Search,0.09950373507280545,0.22819220983013547,2,3,0,5
+playground-series-s5e2,CrossDataset-HyperRL,CrossDataset-LC-DQN,-0.05692123277423491,0.05861205483264046,4,1,0,5
+playground-series-s5e2,CrossDataset-HyperRL,Random Search,-0.03900689364746768,0.0629981769915791,3,2,0,5
+playground-series-s5e2,CrossDataset-LC-DQN,Random Search,0.01791433912676723,0.07844596016120452,2,3,0,5
+playground-series-s5e4,Bayesian Optimization,CrossDataset-HyperRL,-0.019169864525397172,0.2943230907579159,3,2,0,5
+playground-series-s5e4,Bayesian Optimization,CrossDataset-LC-DQN,0.02033085085172779,0.48659660188833365,2,3,0,5
+playground-series-s5e4,Bayesian Optimization,Random Search,0.12985929748808508,0.25180037007718625,1,3,1,5
+playground-series-s5e4,CrossDataset-HyperRL,CrossDataset-LC-DQN,0.03950071537712496,0.383676698105193,2,3,0,5
+playground-series-s5e4,CrossDataset-HyperRL,Random Search,0.14902916201348226,0.2114674505838498,1,4,0,5
+playground-series-s5e4,CrossDataset-LC-DQN,Random Search,0.1095284466363573,0.28896079213737036,1,3,1,5
+playground-series-s5e5,Bayesian Optimization,CrossDataset-HyperRL,-0.32278257908198693,0.46525577686428005,4,1,0,5
+playground-series-s5e5,Bayesian Optimization,CrossDataset-LC-DQN,-0.16383996843199178,0.20741781019022895,4,1,0,5
+playground-series-s5e5,Bayesian Optimization,Random Search,-0.05847842036143121,0.3286867078256024,3,2,0,5
+playground-series-s5e5,CrossDataset-HyperRL,CrossDataset-LC-DQN,0.15894261064999515,0.41946147074923573,1,3,1,5
+playground-series-s5e5,CrossDataset-HyperRL,Random Search,0.26430415872055574,0.326550118146933,1,4,0,5
+playground-series-s5e5,CrossDataset-LC-DQN,Random Search,0.10536154807056057,0.16296049558883796,1,4,0,5

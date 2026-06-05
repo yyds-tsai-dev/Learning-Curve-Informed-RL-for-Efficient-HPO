@@ -310,6 +310,7 @@ class CrossDatasetHyperRLOptimizer(BaseOptimizer):
         total_episodes: int | None = None,
         seed: int = 0,
         evaluation_budget: int | None = None,
+        evaluation_tasks: list[HPOTask] | None = None,
     ) -> list[OptimizationTrace]:
         """Train on multiple tasks with shared DQN weights.
 
@@ -319,6 +320,8 @@ class CrossDatasetHyperRLOptimizer(BaseOptimizer):
                            If None, uses self.total_episodes.
             seed: Random seed
             evaluation_budget: Fixed per-task budget for meta-evaluation.
+            evaluation_tasks: Optional held-out tasks to evaluate after
+                meta-training. Defaults to the training tasks.
 
         Returns:
             List of OptimizationTrace objects, one per task
@@ -347,7 +350,7 @@ class CrossDatasetHyperRLOptimizer(BaseOptimizer):
             episode_budget=self.episode_budget,
         )
         return controller.optimize_cross_dataset(
-            total_episodes, seed, evaluation_budget
+            total_episodes, seed, evaluation_budget, evaluation_tasks
         )
 
 
@@ -363,6 +366,7 @@ class CrossDatasetLCDQNOptimizer(CrossDatasetHyperRLOptimizer):
         total_episodes: int | None = None,
         seed: int = 0,
         evaluation_budget: int | None = None,
+        evaluation_tasks: list[HPOTask] | None = None,
     ) -> list[OptimizationTrace]:
         if total_episodes is None:
             total_episodes = self.total_episodes
@@ -388,7 +392,7 @@ class CrossDatasetLCDQNOptimizer(CrossDatasetHyperRLOptimizer):
             episode_budget=self.episode_budget,
         )
         return controller.optimize_cross_dataset(
-            total_episodes, seed, evaluation_budget
+            total_episodes, seed, evaluation_budget, evaluation_tasks
         )
 
 
@@ -399,6 +403,7 @@ class _Transition:
     reward: float
     next_state: np.ndarray
     done: bool
+    meta: np.ndarray
 
 
 class _ReplayBuffer:
@@ -565,7 +570,16 @@ class _DQNController:
         )
         next_state = runtime.history.reshape(-1).copy()
         done = iteration == budget - 1 or len(runtime.used) == runtime.n_actions
-        runtime.replay.add(_Transition(state, action_idx, reward, next_state, done))
+        runtime.replay.add(
+            _Transition(
+                state=state,
+                action=action_idx,
+                reward=reward,
+                next_state=next_state,
+                done=done,
+                meta=runtime.meta.copy(),
+            )
+        )
 
         loss = self._maybe_train(runtime, rng)
         if (iteration + 1) % self.target_update_freq == 0:
@@ -825,13 +839,16 @@ def _record(
     result: EvalResult,
     extra: dict[str, Any] | None = None,
 ) -> EvaluationRecord:
+    record_extra = dict(result.metadata)
+    if extra is not None:
+        record_extra.update(extra)
     return EvaluationRecord(
         iteration=iteration,
         config=config,
         val_score=result.val_score,
         test_score=result.test_score,
         learning_curve=result.learning_curve,
-        extra=extra or {},
+        extra=record_extra,
     )
 
 
@@ -895,7 +912,11 @@ class _CrossDatasetDQNController:
             raise ValueError("network_type must be 'mlp' or 'lstm'")
 
     def optimize_cross_dataset(
-        self, total_episodes: int, seed: int, evaluation_budget: int = 50
+        self,
+        total_episodes: int,
+        seed: int,
+        evaluation_budget: int = 50,
+        evaluation_tasks: list[HPOTask] | None = None,
     ) -> list[OptimizationTrace]:
         """Meta-train across datasets, then evaluate with frozen weights.
 
@@ -903,13 +924,17 @@ class _CrossDatasetDQNController:
             total_episodes: Total number of episodes (each on a random dataset)
             seed: Random seed
             evaluation_budget: Fixed per-task budget for final meta-evaluation.
+            evaluation_tasks: Optional held-out tasks for final meta-evaluation.
 
         Returns:
             List of evaluation-only OptimizationTrace objects, one per task.
         """
         rng = np.random.default_rng(seed)
         torch.manual_seed(seed)
-        runtime = self._build_runtime(rng, evaluation_budget)
+        if not self.tasks:
+            raise ValueError("Cross-dataset meta-training requires at least one task")
+        tasks_to_evaluate = self.tasks if evaluation_tasks is None else evaluation_tasks
+        runtime = self._build_runtime(rng, evaluation_budget, tasks_to_evaluate)
 
         for episode in tqdm(
             range(total_episodes), desc="Meta-training", unit="episode"
@@ -923,7 +948,7 @@ class _CrossDatasetDQNController:
         # Final meta-evaluation: frozen DQN visits every dataset once with the
         # same fixed budget. These are the only trajectories returned upstream.
         traces: list[OptimizationTrace] = []
-        for task in self.tasks:
+        for task in tasks_to_evaluate:
             trace = self._evaluate_task(
                 task, runtime, rng, total_episodes, seed, evaluation_budget
             )
@@ -932,15 +957,30 @@ class _CrossDatasetDQNController:
         return traces
 
     def _build_runtime(
-        self, rng: np.random.Generator, evaluation_budget: int
+        self,
+        rng: np.random.Generator,
+        evaluation_budget: int,
+        evaluation_tasks: list[HPOTask],
     ) -> _CrossDatasetRuntime:
-        task_data = self._prepare_task_data(rng)
+        task_data = self._prepare_task_data(rng, evaluation_tasks)
         max_rollout_budget = min(
             max(len(data.configs) for data in task_data.values()),
             max(self.episode_budget, evaluation_budget),
         )
 
-        first = task_data[self.tasks[0].name]
+        action_dims = {data.action_vectors.shape[1] for data in task_data.values()}
+        if len(action_dims) != 1:
+            raise ValueError(
+                "Cross-dataset DQN requires tasks with the same search-space "
+                "vector dimension"
+            )
+        meta_dims = {len(data.meta) for data in task_data.values()}
+        if len(meta_dims) != 1:
+            raise ValueError(
+                "Cross-dataset DQN requires tasks with the same meta-feature dimension"
+            )
+
+        first = next(iter(task_data.values()))
         meta_dim = len(first.meta)
         first_action_dim = first.action_vectors.shape[1]
         row_dim = (
@@ -972,21 +1012,30 @@ class _CrossDatasetDQNController:
         )
 
     def _prepare_task_data(
-        self, rng: np.random.Generator
+        self, rng: np.random.Generator, evaluation_tasks: list[HPOTask]
     ) -> dict[str, _CrossDatasetTaskData]:
         task_data: dict[str, _CrossDatasetTaskData] = {}
-        for task in self.tasks:
-            configs = _candidate_configs(task)
-            if configs is None:
-                budget_estimate = max(self.episode_budget * 8, 128)
-                configs = task.search_space.sample_many(rng, budget_estimate)
-            task_data[task.name] = _CrossDatasetTaskData(
-                task=task,
-                configs=configs,
-                action_vectors=task.search_space.to_matrix(configs),
-                meta=_meta_features(task),
-            )
+        seen: set[str] = set()
+        for task in [*self.tasks, *evaluation_tasks]:
+            if task.name in seen:
+                continue
+            seen.add(task.name)
+            task_data[task.name] = self._prepare_single_task_data(task, rng)
         return task_data
+
+    def _prepare_single_task_data(
+        self, task: HPOTask, rng: np.random.Generator
+    ) -> _CrossDatasetTaskData:
+        configs = _candidate_configs(task)
+        if configs is None:
+            budget_estimate = max(self.episode_budget * 8, 128)
+            configs = task.search_space.sample_many(rng, budget_estimate)
+        return _CrossDatasetTaskData(
+            task=task,
+            configs=configs,
+            action_vectors=task.search_space.to_matrix(configs),
+            meta=_meta_features(task),
+        )
 
     def _run_meta_training_episode(
         self,
@@ -1026,7 +1075,7 @@ class _CrossDatasetDQNController:
             previous_raw_reward = raw_reward
             runtime.replay.add(transition)
             runtime.total_transitions += 1
-            self._maybe_train_cross_dataset(runtime, data.meta, rng)
+            self._maybe_train_cross_dataset(runtime, rng)
 
     def _collect_transition(
         self,
@@ -1066,12 +1115,21 @@ class _CrossDatasetDQNController:
         )
         next_state = history.reshape(-1).copy()
         done = iteration == budget - 1 or len(used) == len(data.configs)
-        return _Transition(state, action_idx, reward, next_state, done), raw_reward
+        return (
+            _Transition(
+                state=state,
+                action=action_idx,
+                reward=reward,
+                next_state=next_state,
+                done=done,
+                meta=data.meta.copy(),
+            ),
+            raw_reward,
+        )
 
     def _maybe_train_cross_dataset(
         self,
         runtime: _CrossDatasetRuntime,
-        meta: np.ndarray,
         rng: np.random.Generator,
     ) -> None:
         if len(runtime.replay) >= max(self.learning_starts, self.batch_size):
@@ -1080,7 +1138,6 @@ class _CrossDatasetDQNController:
                 runtime.target,
                 runtime.optimizer,
                 runtime.replay,
-                meta,
                 rng,
             )
         if (runtime.total_transitions + 1) % self.target_update_freq == 0:
@@ -1253,7 +1310,6 @@ class _CrossDatasetDQNController:
         target: Any,
         optimizer: Any,
         replay: _ReplayBuffer,
-        meta: np.ndarray,
         rng: np.random.Generator,
     ) -> float:
         batch = replay.sample(rng, self.batch_size)
@@ -1267,13 +1323,10 @@ class _CrossDatasetDQNController:
         )
         dones = torch.as_tensor([item.done for item in batch], dtype=torch.float32)
 
-        meta_tensor = (
-            torch.as_tensor(meta, dtype=torch.float32)
-            .unsqueeze(0)
-            .expand(states.shape[0], -1)
-            if len(meta) > 0
-            else None
-        )
+        meta_values = [item.meta for item in batch]
+        meta_tensor = None
+        if meta_values and len(meta_values[0]) > 0:
+            meta_tensor = torch.as_tensor(np.vstack(meta_values), dtype=torch.float32)
 
         if isinstance(online, _LSTMQNetwork):
             q_selected = (

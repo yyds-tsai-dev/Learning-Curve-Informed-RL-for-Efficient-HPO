@@ -1,0 +1,55 @@
+{
+  "snapshot_date": "2026-06-01",
+  "metric": {
+    "name": "RMSE",
+    "direction": "minimize",
+    "reference_worst_percentile": 90
+  },
+  "cache": {
+    "configs_per_task": 256,
+    "epochs_per_config": 25,
+    "seeds_per_config": 1,
+    "max_train_rows": 2000,
+    "max_categories_per_column": 32,
+    "split": {
+      "train": 0.8,
+      "validation": 0.1,
+      "test": 0.1,
+      "seed": 20260601
+    }
+  },
+  "nested_order": [
+    "playground-series-s3e1",
+    "playground-series-s4e4",
+    "playground-series-s4e12",
+    "playground-series-s3e14",
+    "playground-series-s4e9",
+    "playground-series-s3e9",
+    "playground-series-s3e16",
+    "playground-series-s5e5",
+    "playground-series-s3e11",
+    "playground-series-s5e4",
+    "playground-series-s3e6",
+    "playground-series-s3e8",
+    "playground-series-s3e25",
+    "playground-series-s4e5",
+    "playground-series-s5e2"
+  ],
+  "tasks": [
+    {"slug": "playground-series-s3e1", "episode": "S3E1", "name": "California Housing", "target_column": "MedHouseVal"},
+    {"slug": "playground-series-s3e6", "episode": "S3E6", "name": "Paris Housing Price", "target_column": "price"},
+    {"slug": "playground-series-s3e8", "episode": "S3E8", "name": "Gemstone Price", "target_column": "price"},
+    {"slug": "playground-series-s3e9", "episode": "S3E9", "name": "Concrete Strength", "target_column": "Strength"},
+    {"slug": "playground-series-s3e11", "episode": "S3E11", "name": "Media Campaign Cost", "target_column": "cost"},
+    {"slug": "playground-series-s3e14", "episode": "S3E14", "name": "Wild Blueberry Yield", "target_column": "yield"},
+    {"slug": "playground-series-s3e16", "episode": "S3E16", "name": "Crab Age", "target_column": "Age"},
+    {"slug": "playground-series-s3e25", "episode": "S3E25", "name": "Mohs Hardness", "target_column": "Hardness"},
+    {"slug": "playground-series-s4e4", "episode": "S4E4", "name": "Abalone", "target_column": "Rings"},
+    {"slug": "playground-series-s4e5", "episode": "S4E5", "name": "Flood Prediction", "target_column": "FloodProbability"},
+    {"slug": "playground-series-s4e9", "episode": "S4E9", "name": "Used Car Prices", "target_column": "price"},
+    {"slug": "playground-series-s4e12", "episode": "S4E12", "name": "Insurance", "target_column": "Premium Amount"},
+    {"slug": "playground-series-s5e2", "episode": "S5E2", "name": "Backpack Prediction", "target_column": "Price"},
+    {"slug": "playground-series-s5e4", "episode": "S5E4", "name": "Podcast Listening Time", "target_column": "Listening_Time_minutes"},
+    {"slug": "playground-series-s5e5", "episode": "S5E5", "name": "Calorie Expenditure", "target_column": "Calories"}
+  ]
+}

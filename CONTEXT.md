@@ -18,7 +18,7 @@ Kaggle Regression Tasks use one shared tabular preprocessing protocol. Identifie
 
 Task Meta-Features are dataset-level descriptors used to condition cross-task Hyp-RL and LC-DQN policies.
 
-For Kaggle Regression Tasks, Task Meta-Features describe the dataset and preprocessing result only. They do not include HPO cache outcomes, oracle scores, model performance, or other values that would leak benchmark answers into the policy.
+For Kaggle Regression Tasks, Task Meta-Features follow the Hyp-RL paper Table 1 style descriptors: 16 dataset/preprocessing-only features covering instance count, processed feature count, dimensionality ratios, and skewness/kurtosis summaries from the preprocessed training feature matrix. They do not include HPO cache outcomes, oracle scores, target distribution statistics, model performance, or other values that would leak benchmark answers into the policy.
 
 Hyp-RL and LC-DQN use the same Task Meta-Features. LC-DQN differs by additionally using learning-curve features observed during configuration evaluation.
 
