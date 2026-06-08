@@ -29,3 +29,18 @@ AGENTS.md
 .codex/*
 .graphify_python
 graphify-out/*
+
+# LaTeX build artifacts (keep .tex and .pdf)
+**/*.aux
+**/*.bbl
+**/*.blg
+**/*.fdb_latexmk
+**/*.fls
+**/*.log
+**/*.out
+**/*.toc
+**/*.lof
+**/*.lot
+**/*.synctex.gz
+**/*.bcf
+**/*.run.xml

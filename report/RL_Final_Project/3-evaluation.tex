@@ -4,9 +4,9 @@
 \subsection{Performance Metrics}
 We plan to evaluate the algorithms based on the following four metrics:
 \begin{itemize}
-    \item{Final test/validation performance:} We record the ultimate performance of the deep learning model trained with the hyperparameters discovered by the RL agent. For our continuous regression tasks, this is measured primarily by Mean Squared Error (MSE) or Root Mean Squared Error (RMSE) on the test set.
-    \item{Search efficiency:} This metric evaluates how quickly the RL agent converges to optimal hyperparameter configurations. We quantify this by the number of function evaluations or the total wall-clock GPU time required to reach a target RMSE threshold.
-    \item{Simple regret / cumulative regret:} Derived from multi-armed bandit literature, simple regret measures the MSE gap between the globally optimal configuration and the agent's final recommended hyperparameter set. Cumulative regret measures the total performance penalty accumulated during the entire search phase.
+    \item{Final validation performance:} We record the best validation loss obtained by the model trained with the hyperparameters discovered by the agent, using the task-appropriate metric (e.g.\ RMSE for regression, log-loss for classification).
+    \item{Search efficiency:} This metric evaluates how quickly the agent converges to strong configurations. We quantify it by the number of function evaluations (the evaluation budget), reporting performance as a function of the budget so that cold-start and asymptotic behavior can be read off a single anytime curve.
+    \item{Simple regret:} Derived from the multi-armed bandit literature, simple regret measures the loss gap between the best configuration found by any compared method (the oracle) and the agent's recommended configuration. Because the benchmark spans widely varying loss scales, we report \emph{normalized} simple regret to make the metric comparable across tasks.
 \end{itemize}
 
 \subsection{Baseline Methods}
