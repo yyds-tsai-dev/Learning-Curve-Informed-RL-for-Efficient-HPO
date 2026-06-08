@@ -1,0 +1,41 @@
+\section{Empirical Evaluation}
+\label{section:evaluation}
+
+\subsection{Performance Metrics}
+We plan to evaluate the algorithms based on the following four metrics:
+\begin{itemize}
+    \item{Final test/validation performance:} We record the ultimate performance of the deep learning model trained with the hyperparameters discovered by the RL agent. For our continuous regression tasks, this is measured primarily by Mean Squared Error (MSE) or Root Mean Squared Error (RMSE) on the test set.
+    \item{Search efficiency:} This metric evaluates how quickly the RL agent converges to optimal hyperparameter configurations. We quantify this by the number of function evaluations or the total wall-clock GPU time required to reach a target RMSE threshold.
+    \item{Simple regret / cumulative regret:} Derived from multi-armed bandit literature, simple regret measures the MSE gap between the globally optimal configuration and the agent's final recommended hyperparameter set. Cumulative regret measures the total performance penalty accumulated during the entire search phase.
+\end{itemize}
+
+\subsection{Baseline Methods}
+We compare against the following standard HPO baselines:
+\begin{itemize}
+    \item{Random Search} \citep{bergstra2012random}: A fundamental baseline that randomly samples hyperparameter configurations. It serves as a necessary lower bound to verify that the proposed RL agent explores high-dimensional continuous search spaces more effectively than random selection.
+    \item{BO} \citep{snoek2012practical}: A standard state-of-the-art method for HPO. We will use a Gaussian Process-based BO with Expected Improvement (EI) to systematically benchmark against our RL agent's sequential decision-making capabilities.
+    % \item{Hyperband} \citep{li2017hyperband}: An efficient, bandit-based approach that allocates training resources dynamically. It uses successive halving to aggressively early-stop underperforming deep learning models, serving as a strong baseline for search efficiency and resource allocation.
+    \item{Hyp-rl} \citep{jomaa2019hyp}: An RL-based HPO method that learns a sequential decision policy via DQN over a discretized hyperparameter space, using only scalar reward feedback without learning curve information.
+\end{itemize}
+
+In addition, we evaluate two variants of our proposed method:
+\begin{itemize}
+    \item \textbf{CrossDataset-HyperRL}: A Hyp-RL agent pre-trained across multiple 
+    source datasets and evaluated on held-out target datasets, isolating the 
+    contribution of cross-dataset policy transfer (idea ii).
+    \item \textbf{CrossDataset-LC-DQN}: Our full method, which combines cross-dataset 
+    pre-training with the derivative-informed state representation (idea i), 
+    augmenting the agent's input with first- and second-order derivatives of the 
+    observed learning curves.
+\end{itemize}
+
+\subsection{Benchmark Tasks or Datasets}
+We evaluate the algorithms in various benchmark domains widely used in the literature, specifically focusing on continuous prediction tasks:
+\begin{itemize}
+    \item \textbf{LCBench} \citep{zimmer2021autopytorch}: A learning curve benchmark built on top of OpenML datasets, providing pre-computed training trajectories of funnel-shaped MLPs across 35 tabular classification tasks. Each of its 2{,}000 hyperparameter configurations per dataset is logged with per-epoch validation losses over 50 epochs, exposing the full learning curve required by our derivative-informed state representation. The shared 7-dimensional search space (batch size, learning rate, momentum, weight decay, number of layers, max units per layer, dropout) and aligned training protocol across datasets make LCBench particularly well-suited for evaluating cross-dataset policy transfer.
+    % \item \textbf{NAS-Bench-360} \citep{tu2021nasbench360}: While traditional NAS benchmarks focus on classification, NAS-Bench-360 extends to diverse domains including 1D sequence and continuous prediction. We plan to utilize this benchmark in future work to evaluate the RL agent's capability in navigating discrete structural hyperparameter spaces (e.g., layer types, channel sizes) for regression models.
+    \item \textbf{Kaggle Playground Series} \citep{kaggle_playground}: To evaluate the generalization and cross-dataset transfer capabilities of the reinforcement learning policy, we utilize 15 tabular datasets sourced from the Kaggle Playground Series competitions. This benchmark suite encompasses variations in feature dimensions, instance counts, and mathematical task types (spanning continuous regression and discrete classification). The datasets, identified by their competition season and episode (e.g., \texttt{playground-series-s3e1}), consist of synthetic data generated via deep learning models trained on real-world reference data. This generation mechanism ensures the preservation of underlying statistical distributions and feature correlations, providing a standardized, heterogeneous environment for evaluating policy transferability.
+\end{itemize}
+
+% \bibliographystyle{plainnat}
+% \bibliography{refs}

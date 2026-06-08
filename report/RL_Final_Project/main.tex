@@ -1,0 +1,75 @@
+\documentclass{article}
+
+% to compile a preprint version, e.g., for submission to arXiv, add add the
+% [preprint] option:
+\usepackage[preprint]{neurips_2020}
+
+% Added packages
+\usepackage{amsmath,amssymb}
+% Add this line to resolve the \coloneqq error
+\usepackage{mathtools}
+\usepackage[table,xcdraw]{xcolor}
+
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       
+% blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{graphicx}
+\usepackage{subcaption}  % new added
+\usepackage{float}       % new added
+\usepackage{placeins}    % new added
+% Added packages
+\usepackage{amsmath,amssymb}
+\usepackage{algorithm, algorithmic}
+\usepackage[table,xcdraw]{xcolor}
+\usepackage[colorlinks = true,
+            linkcolor = blue,
+            urlcolor  = blue,
+            citecolor = blue,
+            anchorcolor = blue]{hyperref}
+\hypersetup{citecolor=[rgb]{0,0.2,0.75}}
+\hypersetup{linkcolor=[rgb]{0,0.2,0.75}}
+\hypersetup{urlcolor=[rgb]{0,0.2,0.75}}
+\usepackage[capitalize]{cleveref}
+
+\title{535510 RL Team Project Proposal: \\ Learning Curve-Informed Reinforcement Learning for Efficient Hyperparameter Optimization}
+
+\author{%
+  Han-Syuan Liao\quad Cheng-An Tsai\quad Yi-Xiang Yu\\
+  Department of Computer Science\\
+  National Yang Ming Chiao Tung University\\
+  \texttt{\{hans.cs12, chengan81.ii14, seann.cs12\}@nycu.edu.tw}
+}
+
+\begin{document}
+
+\maketitle
+
+\input{1-overview}
+
+\input{2-formulation}
+
+\input{3-evaluation}
+
+% The following sections are kept to match the template structure
+\input{4-method}
+
+\input{5-exp}
+
+\input{6-contribution}
+
+\input{7-future}
+
+\newpage
+{
+\small
+\bibliographystyle{plainnat}
+\bibliography{refs}
+}
+
+\end{document}

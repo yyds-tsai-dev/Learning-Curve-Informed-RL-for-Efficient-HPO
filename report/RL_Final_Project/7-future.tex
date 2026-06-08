@@ -1,0 +1,5 @@
+\section{Future Work}
+\label{section:future_work}
+
+\textbf{Surrogate Model-Accelerated Evaluation:} \\
+To mitigate the primary computational bottleneck of executing full training runs during hyperparameter evaluation, we propose integrating a multi-dataset surrogate prediction model to estimate task performance given a configuration. While a single-dataset differentiable surrogate allows direct gradient descent optimization, it is fundamentally restricted to single-task scenarios. Within our meta-RL framework, a multi-dataset surrogate functions as a high-fidelity simulation environment. This setup allows the reinforcement learning agent to efficiently learn and transfer sequential search policies across diverse data distributions without the computational overhead of actual model training.

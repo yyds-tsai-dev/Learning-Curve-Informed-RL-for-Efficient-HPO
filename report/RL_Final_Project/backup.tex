@@ -1,0 +1,93 @@
+\documentclass[12pt]{article}
+
+% Required packages for math and formatting
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{geometry}
+\usepackage{natbib}
+\usepackage{mathtools}
+
+\geometry{a4paper, margin=1in}
+
+\title{535510 RL Team Project Proposal: \\ Learning Curve-Informed Reinforcement Learning for Efficient Hyperparameter Optimization}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Project Overview}
+
+\noindent\textbf{Track:} 3. Application
+
+\paragraph{Abstract and project goal:}
+Hyperparameter optimization (HPO) is a fundamental yet costly challenge in machine learning: finding the right hyperparameter configuration often requires evaluating dozens of candidate configurations, each demanding a full or partial training run. Reinforcement learning (RL)-based HPO methods, such as Hyp-RL, have shown promise by learning a sequential decision policy over the hyperparameter space. However, existing RL-based approaches treat each configuration evaluation as a black-box query, discarding the rich temporal structure embedded in the learning curve produced during training.
+
+In this project, we propose a learning curve-informed RL framework for HPO and explore two directions. (i) Derivative-informed state representation: We augment the agent's input at each step with explicit first- and second-order derivatives of the observed learning curve, providing structured inductive bias about whether a configuration is still improving, decelerating, or plateauing, at zero additional evaluation cost. (ii) Cross-dataset policy transfer: We investigate whether pre-training the LSTM policy across multiple datasets can yield an agent that generalizes to unseen datasets without restarting from scratch.
+
+\paragraph{TL;DR (``Too Long; Didn't Read''):}
+We augment an RL-based HPO agent with learning curve derivatives as structured state features, and investigate cross-dataset transfer of the learned policy for more efficient and generalizable hyperparameter search.
+
+\subsection{Motivation}
+
+\paragraph{Why is the problem interesting?}
+When human experts tune hyperparameters, they rely on the geometry of the learning curve---observing how fast the loss is dropping or whether it is plateauing---rather than treating each evaluation as an isolated scalar. We aim to provide exactly this information to an RL agent and examine whether it improves tuning efficiency. Beyond single-task HPO, a practically useful agent should also transfer its experience to new datasets, exploiting the structural regularity that learning curves share across tasks.
+
+\paragraph{Critical challenges.}
+\begin{itemize}
+    \item \textbf{Challenge 1: Reliable derivative estimation from noisy learning curves.}\\
+    Learning curves in practice are noisy, and finite-difference estimates can amplify this noise, potentially misleading the agent. Key design questions include window size, smoothing strategy, and sensitivity of the learned policy to these choices---all of which require empirical ablation.
+    \item \textbf{Challenge 2: Learning a transferable HPO policy across datasets.}\\
+    A practically useful HPO agent should generalize across tasks---given experience on a collection of datasets, it should be able to search effectively on a new, unseen dataset without retraining from scratch. This is non-trivial because different datasets induce different reward scales, convergence speeds, and hyperparameter sensitivities, making it difficult to learn representations that remain meaningful across tasks.
+\end{itemize}
+We hypothesize that these derivative features provide a universal view of training dynamics. Since their physical meanings don't change between tasks, they make it easier for the RL agent to transfer its knowledge to new problems.
+
+\paragraph{Justify why the problem remains open or unsolved.}
+Existing RL-based HPO works observe only scalar rewards, ignoring within-curve structure \citep{jomaa2019hyp}. Learning curve-aware methods operate outside the RL framework \citep{wistuba2022dyhpo}. Meta-RL approaches for HPO address cross-task generalization but rely on complex encoders without exploiting derivative structure \citep{albrechts2024model, wu2023hyperparameter}. Our work is the first to combine derivative-informed state representation with cross-dataset transfer in a unified RL-for-HPO framework.
+
+\paragraph{State-of-the-art methods.}
+We consider Hyp-RL as the state-of-the-art RL-based HPO baseline that our method directly builds upon.
+
+\section{Problem Formulation}
+
+In this work, we formulate the sequential hyperparameter optimization problem as a Markov Decision Process (MDP). Let $\Lambda$ denote the $H$-dimensional hyperparameter search space. The MDP is defined by the tuple $\mathcal{M}\coloneqq (\mathcal{S}, \mathcal{A}, P, R, \gamma)$. The action space is defined as $\mathcal{A}\coloneqq\Lambda$, where an action $a_t\in\mathcal{A}$ corresponds to selecting a specific hyperparameter configuration $\lambda_t$ to evaluate.
+
+
+The state space $\mathcal{S}$ is defined as $\mathcal{S}\coloneqq\mathbb{R}^w\times(\Lambda\times R\times \mathcal{C}\times \mathcal{C})^*$, where each state $s_t\in\mathcal{S}$ encapsulates both the static dataset meta-features $\mathbf{d}\in\mathbb{R}^w$ and the dynamic history of previously evaluated configurations alongside their corresponding outcomes, including $\mathcal{C}\subset\mathbb{R}^K$ being the space of learning curves, representing a sequence of validation losses over $K$ training epochs and the last two elements are the first and second derivatives of the learning curve. 
+
+The reward function is defined as $R(D, a)=-f(D, \lambda=a)$ on a given dataset $D$. The deterministic transition function $P$ updates the state by appending the newly selected configuration and observed reward to the historical sequence, yielding $s_{t+1}=(s_t,(a_t, r_t, c_t', c_t''))$. Furthermore, we impose strict termination constraints on the environment: an episode concludes either when a predefined budget sequence length $T$ is exhausted, or if the agent selects the identical action consecutively ($a_t=a_{t-1}$).
+
+Our objective is to learn an optimal policy $\pi^*:\mathcal{S}\rightarrow\mathcal{A}$ that maximizes the expected discounted cumulative reward, effectively identifying the hyperparameter configuration that minimizes the generalization error across varying datasets. This is achieved by estimating the optimal action-value function $Q^*(s,a)$, which satisfies the Bellman equation:
+$$Q^*(s, a)=\mathbb{E}_{\pi}[r+\gamma\max_{a'}Q^*(s',a')|S_0=s,A_0=a]$$
+where $\gamma\in[0, 1]$ is the discount factor. To operate within this high-dimensional state space, which consists of variable-length temporal sequences and distinct response surfaces, we employ a parameterized function approximator $Q(s,a;\theta)$. Specifically, we utilize a Long Short-Term Memory (LSTM) network to model the dynamic action-value space, enabling the agent to capture long-range dependencies and transfer optimization knowledge across datasets.
+
+\section{Empirical Evaluation}
+
+\subsection*{Performance Metrics}
+We plan to evaluate the algorithms based on the following four metrics:
+\begin{itemize}
+    \item \textbf{Final test/validation performance:} We record the ultimate performance of the deep learning model trained with the hyperparameters discovered by the RL agent. For our continuous regression tasks, this is measured primarily by Mean Squared Error (MSE) or Root Mean Squared Error (RMSE) on the test set.
+    \item \textbf{Search efficiency:} This metric evaluates how quickly the RL agent converges to optimal hyperparameter configurations. We quantify this by the number of function evaluations or the total wall-clock GPU time required to reach a target RMSE threshold.
+    \item \textbf{Simple regret / cumulative regret:} Derived from multi-armed bandit literature, simple regret measures the MSE gap between the globally optimal configuration and the agent's final recommended hyperparameter set. Cumulative regret measures the total performance penalty accumulated during the entire search phase.
+\end{itemize}
+
+\subsection*{Baseline Methods}
+We will take into account the following recent benchmark HPO algorithms:
+\begin{itemize}
+    \item \textbf{Random Search} \citep{bergstra2012random}: A fundamental baseline that randomly samples hyperparameter configurations. It serves as a necessary lower bound to verify that the proposed RL agent explores high-dimensional continuous search spaces more effectively than random selection.
+    \item \textbf{BO} \citep{snoek2012practical}: A standard state-of-the-art method for HPO. We will use a Gaussian Process-based BO with Expected Improvement (EI) to systematically benchmark against our RL agent's sequential decision-making capabilities.
+    \item \textbf{Hyperband} \citep{li2017hyperband}: An efficient, bandit-based approach that allocates training resources dynamically. It uses successive halving to aggressively early-stop underperforming deep learning models, serving as a strong baseline for search efficiency and resource allocation.
+\end{itemize}
+
+\subsection*{Benchmark Tasks or Datasets}
+We evaluate the algorithms in various benchmark domains widely used in the literature, specifically focusing on continuous prediction tasks:
+\begin{itemize}
+    \item \textbf{HPOBench} \citep{eggensperger2021hpobench}: A suite of tabular and surrogate benchmarks providing pre-computed training trajectories. We utilize its regression-specific subsets to allow rapid, reproducible evaluation of the RL agent without the computational burden of repeatedly training deep neural networks from scratch.
+    \item \textbf{NAS-Bench-360} \citep{tu2021nasbench360}: While traditional NAS benchmarks focus on classification, NAS-Bench-360 extends to diverse domains including 1D sequence and continuous prediction. We utilize this to evaluate the RL agent's capability in navigating discrete structural hyperparameter spaces (e.g., layer types, channel sizes) for regression models.
+\end{itemize}
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}
