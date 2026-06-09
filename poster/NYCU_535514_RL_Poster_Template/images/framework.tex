@@ -1,0 +1,54 @@
+% Learning curve-informed RL loop (redesigned, self-contained)
+\begin{figure}
+\centering
+\begin{adjustbox}{max width=\textwidth, center}
+\begin{tikzpicture}[
+    font=\large,
+    box/.style   = {rectangle, rounded corners=8pt, draw=black, line width=1pt,
+                    minimum height=2.8cm, text centered, align=center, fill=white},
+    policy/.style= {box, fill=blue!10,   draw=blue!55!black,   line width=1.4pt, minimum width=6.6cm},
+    env/.style   = {box, fill=gray!12,   draw=gray!55!black,   line width=1.4pt, minimum width=6.6cm},
+    deriv/.style = {box, fill=orange!20, draw=orange!80!black, line width=1.8pt, minimum width=6.6cm},
+    state/.style = {box, fill=blue!4,    draw=black,           line width=1.4pt, minimum width=33cm, minimum height=2.8cm},
+    fwd/.style   = {-{Stealth[length=6mm,width=5mm]}, line width=1.8pt},
+    fb/.style    = {-{Stealth[length=6mm,width=5mm]}, line width=1.8pt, gray!55!black},
+    fbo/.style   = {-{Stealth[length=6mm,width=5mm]}, line width=2pt, orange!80!black},
+    lab/.style   = {font=\normalsize, fill=white, inner sep=3pt},
+]
+
+% ---- state row spanning the top ----
+\node[state] (state)
+     {\textbf{\large State}\;\;
+      $s_t=\big(s_{t-1},\;(\lambda_t,\; r_t,\; \textcolor{orange!75!black}{c'(k;\lambda_t)},\; \textcolor{orange!75!black}{c''(k;\lambda_t)})\big)$
+      \;\;$\oplus$\;\; static feature $d$};
+
+% ---- middle action row ----
+\node[env]    (env)  [below=4.4cm of state] {\textbf{Environment}\\[3pt]{\normalsize train config $\to$ log curve}};
+\node[policy] (pi)   [left=7.5cm of env]    {\textbf{Policy} $\pi_\theta$\\[3pt]{\normalsize shared LSTM}};
+\node[deriv]  (der)  [right=7.5cm of env]   {\textbf{Derivative}\\\textbf{Extractor}};
+
+% ---- forward flow (left -> right) ----
+\draw[fwd] (pi)  -- node[lab,above]{config $\lambda_{t+1}$} (env);
+\draw[fwd] (env) -- node[lab,above]{curve $c(k)$}           (der);
+
+% ---- feedback to state (vertical) ----
+% policy reads the state (down)
+\draw[fb]  (state.south -| pi.north) -- node[lab,left]{read} (pi.north);
+% environment returns the reward (up)
+\draw[fb]  (env.north) -- node[lab,left]{reward $r_{t+1}$}   (env.north |- state.south);
+% derivative features close the loop (up) -- highlighted contribution path
+\draw[fbo] (der.north) -- node[lab,right,text=orange!80!black]{\textbf{$c',c''$ features}} (der.north |- state.south);
+
+% ---- legend tag for the contribution ----
+\node[font=\normalsize, text=orange!80!black, anchor=west] at ($(der.south)+(-3.3cm,-1.0cm)$)
+     {\textbf{$\Leftarrow$ our addition (zero extra cost)}};
+
+\end{tikzpicture}
+\end{adjustbox}
+\caption{\textbf{Learning curve-informed RL loop.} The policy reads the state and picks
+a configuration $\lambda_{t+1}$; the environment trains it and logs the learning curve
+$c(k)$; the \textcolor{orange!80!black}{\textbf{Derivative Extractor}} turns that curve
+into first/second-order features $c',c''$ appended to the next state --- structured
+signal at \emph{zero extra evaluation cost}.}
+\label{fig:framework}
+\end{figure}

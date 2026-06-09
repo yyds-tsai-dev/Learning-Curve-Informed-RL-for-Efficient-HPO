@@ -1,0 +1,18 @@
+\begin{table}
+  \centering
+  \caption{Average normalized simple regret on the 15 heterogeneous Kaggle
+  Playground tasks (5 seeds; lower is better). The curve features are what push
+  the RL agent below Random Search.}
+  \begin{tabular}{l c c}
+    \toprule
+    \textbf{Method} & \textbf{Norm.\ regret} $\downarrow$ & \textbf{Avg.\ rank} \\
+    \midrule
+    Bayesian Opt.\ (GP, asymptotic best)    & 0.0150 & --- \\
+    \rowcolor{orange!18}
+    \textbf{LC-DQN} (ours, +curve features) & \textbf{0.0217} & \textbf{2.33} \\
+    Random Search                           & 0.0243 & --- \\
+    HyperRL (curve-free ablation)           & 0.0251 & 2.87 \\
+    \bottomrule
+  \end{tabular}
+  \label{tab:results}
+\end{table}

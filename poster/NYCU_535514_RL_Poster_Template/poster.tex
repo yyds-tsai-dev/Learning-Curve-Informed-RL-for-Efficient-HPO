@@ -17,7 +17,7 @@
 
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
-\usepackage[orientation=portrait,size=a0,scale=1.2]{beamerposter}
+\usepackage[orientation=portrait,size=a1,scale=1.2]{beamerposter}
 \usetheme{gemini}
 \usecolortheme{nott}
 \usepackage{graphicx}
@@ -27,6 +27,7 @@
 \pgfplotsset{compat=1.14}
 \usepackage{anyfontsize}
 \usepackage{xcolor}
+\usepackage{colortbl}
 \usepackage[skip=2pt,font=large]{subcaption}
 \usepackage{adjustbox}
 
@@ -35,7 +36,7 @@
 % ----------------------------------
 
 \usepackage{tikz}
-\usetikzlibrary{shapes.geometric, arrows}
+\usetikzlibrary{shapes.geometric, arrows, arrows.meta, positioning, calc}
 
 % Defining Tickz Style
 \tikzstyle{startstop} = [rectangle, rounded corners, minimum width=3cm, minimum height=1cm, text centered, text width = 10cm, draw=black, fill=white]
@@ -66,21 +67,17 @@
 % Title
 % ====================
 
-\title{Your Title}
+\title{Learning Curve-Informed RL for Efficient Hyperparameter Optimization}
 
-\author{First Author \inst{1} \and Second Author \inst{1} \and  Third Author  \inst{1}}
+\author{Han-Syuan Liao\inst{1} \and Cheng-An Tsai\inst{1} \and Yi-Xiang Yu\inst{1}}
 
-\institute[shortinst]{\inst{1} National Yang Ming Chiao Tung University \samelineand \inst{2} Second Affiliation (If Available)}
+\institute[shortinst]{\inst{1} Department of Computer Science, National Yang Ming Chiao Tung University}
 
 % ====================
 % Footer (optional)
 % ====================
 
-\footercontent{
-  \href{}{\textbf{your webpage}} \hfill
-  \textbf{NYCU 535514 Reinforcement Learning} \hfill
-  \href{mailto:your email}{\textbf{your email}}}
-% (can be left out to remove footer)
+% Footer removed per request (leaving out \footercontent removes the footer bar)
 
 
 % ====================
@@ -104,71 +101,73 @@
 \begin{column}{\colwidth}
 
 % ----------------------------------
-% Abstract
+% Motivation
 % ----------------------------------
-  \begin{block}{Abstract}
-    Maecenas eget nunc suscipit, luctus nisl non, tristique felis. Praesent blandit faucibus quam, et tincidunt mauris sagittis eget. Nam lectus ante, ullamcorper luctus pulvinar a, rhoncus vitae mauris. Sed bibendum sapien in dolor dapibus, id iaculis turpis tristique. Proin sit amet velit blandit, pretium lectus iaculis, vulputate nibh. Fusce vel fringilla lectus. Maecenas at orci felis. Duis fringilla diam ligula, a dapibus leo lobortis mollis. Maecenas tellus diam, placerat sit amet nisl at, dapibus imperdiet arcu. Phasellus vel pharetra mi. Quisque malesuada porta mi. Ut lacinia erat nec auctor tincidunt. Integer quis mattis dolor. Cras suscipit vitae lectus ut dignissim. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Proin et lectus sed lorem rhoncus luctus.
-  \end{block}
-  
-% ----------------------------------
-% Section: Literature review
-% ----------------------------------
-%  \begin{block}{Literature review}
-
-%    Maecenas eget nunc suscipit, luctus nisl non, tristique felis. Praesent blandit faucibus quam, et tincidunt mauris sagittis eget. Nam lectus ante, ullamcorper luctus pulvinar a, rhoncus vitae mauris. Sed bibendum sapien in dolor dapibus, id iaculis turpis tristique \cite{li-1984}. Proin sit amet velit blandit, pretium lectus iaculis, vulputate nibh. Fusce vel fringilla lectus. Maecenas at orci felis. Duis fringilla diam ligula, a dapibus leo lobortis mollis. Maecenas tellus diam, placerat sit amet nisl at, dapibus imperdiet arcu. Phasellus vel pharetra mi. Quisque malesuada porta mi. Ut lacinia erat nec auctor tincidunt. Integer quis mattis dolor. Cras suscipit vitae lectus ut dignissim. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Proin et lectus sed lorem rhoncus luctus \cite{WHO-2018}.
-
-%    \heading{Research gaps}
-%    Pellentesque eget convallis lorem, vel vestibulum nisl. Vivamus suscipit augue at ipsum commodo semper. Duis hendrerit, metus non scelerisque ultricies, libero dolor malesuada diam, fermentum scelerisque augue justo a erat. Donec arcu mi, tempor id pharetra ut, ultrices eu tortor. Vivamus in elit mauris. Ut vitae tellus tristique, tincidunt turpis sed, lobortis eros. Fusce malesuada vel turpis non mollis. Curabitur eleifend velit sagittis turpis vehicula auctor.
-
-%  \end{block}
-
-% ----------------------------------
-% Section: Research objectives
-% ----------------------------------
-  \begin{alertblock}{Research objectives}
-
-    The present study investigates the following objectives:
+  \begin{block}{Motivation: tune like a human expert}
+    Hyperparameter optimization (HPO) is costly --- every candidate configuration
+    needs a (partial) training run. RL-based HPO such as \textbf{Hyp-RL}
+    learns a sequential search policy, but treats each evaluation as a
+    \emph{black-box scalar}, throwing away the \textbf{learning curve} produced during training.
 
     \begin{itemize}
-      \item \textbf{Objective 1:} Pellentesque eget convallis lorem, vel vestibulum nisl.
-      
-      \item \textbf{Objective 2:} Curabitur eleifend velit sagittis turpis vehicula auctor.
+      \item Human experts read the \emph{geometry} of the curve --- is the loss still
+            dropping fast, decelerating, or plateauing? --- not just the final number.
+      \item These derivative signals have a \emph{task-independent} physical meaning,
+            so they are a natural substrate for \textbf{transfer across datasets}.
     \end{itemize}
+  \end{block}
 
+% ----------------------------------
+% Our idea / objectives
+% ----------------------------------
+  \begin{alertblock}{Our idea: two cheap augmentations to RL-HPO}
+    \begin{itemize}
+      \item \textbf{(i) Derivative-informed state.} Append first- \& second-order
+            derivatives of the observed learning curve $\big(c'(k),\,c''(k)\big)$
+            to the agent's state --- structured signal at \textbf{zero extra evaluation cost}.
+      \item \textbf{(ii) Cross-dataset transfer.} Meta-train one shared LSTM policy
+            across many datasets so it generalizes to \emph{unseen} tasks without
+            restarting from scratch.
+    \end{itemize}
+    \textbf{Question:} \emph{when} do learning-curve derivatives actually help?
   \end{alertblock}
 
 % ----------------------------------
-% Section: Study methodology
+% Framework
 % ----------------------------------
- \begin{block}{Study methodology}
-    The present study adopted the following step-by-step methodology to achieve the research objectives.
- 
-    \input{images/figure1}
+ \begin{block}{Framework: a learning curve-informed RL loop}
 
+    \input{images/framework}
+
+    \heading{State $\to$ Policy $\to$ Environment $\to$ Derivative Extractor $\to$ State}
+    We formulate HPO as an MDP: action $=$ choosing a configuration $\lambda$,
+    reward $=$ negative generalization error $R(D,a)=-f(D,\lambda{=}a)$. An LSTM
+    $Q$-network, primed by a 16-d dataset descriptor $d$, scores configurations.
+    Each curve is summarized by \textbf{5 finite-difference features} (final value,
+    min, slope, curvature, total improvement) over its last 8 epochs.
+    The curve-free ablation is \texttt{HyperRL}; the full method is \texttt{LC-DQN}.
+
+    \begin{figure}
+      \centering
+      \includegraphics[width=0.92\textwidth]{images/learning_curve_features.png}
+    \end{figure}
  \end{block}
 
-% -------------------------------
-% Section: Site selection and data collection
-% -------------------------------
-\begin{block}{Site selection and data collection}
-    Sed et augue accumsan nibh ullamcorper accumsan. Nam dictum urna tortor, ut pretium leo eleifend efficitur. Mauris pretium, elit non posuere rhoncus, tortor enim dapibus lacus, a vehicula orci diam sit amet urna. In hac habitasse platea dictumst. Cras ut fermentum nunc, id interdum ex. Donec tincidunt metus nulla, a interdum ante efficitur cursus.  
-
-    Sed et augue accumsan nibh ullamcorper accumsan. Nam dictum urna tortor, ut pretium leo eleifend efficitur. Mauris pretium, elit non posuere rhoncus, tortor enim dapibus lacus, a vehicula orci diam sit amet urna. In hac habitasse platea dictumst. Cras ut fermentum nunc, id interdum ex. Donec tincidunt metus nulla, a interdum ante efficitur cursus.
-    
-\end{block}
-
-% -------------------------------
-% Section: Descriptive Statistics
-% -------------------------------
-
-\begin{block}{Descriptive statistics}
+% ----------------------------------
+% Setup
+% ----------------------------------
+\begin{block}{Experimental setup}
     \begin{itemize}
-        \item Sed et augue accumsan nibh 45\% ullamcorper accumsan.
-        \item Sed et augue accumsan nibh ullamcorper accumsan. Nam dictum urna tortor, ut pretium leo eleifend efficitur. 
-        \item Nullam at velit facilisis nibh vulputate porta a sit amet metus.
-        \item Maecenas eget nunc suscipit, luctus nisl non, tristique felis.
-        \item Maecenas tellus diam, placerat sit amet nisl at, dapibus imperdiet arcu.
-    \end{itemize} 
+      \item \textbf{LCBench}: 35 \emph{homogeneous}
+            OpenML tasks --- same MLP family, 7-d search space, 50-epoch protocol
+            $\Rightarrow$ stereotyped, near-monotone curves.
+      \item \textbf{Kaggle Playground Series}: 15 \emph{heterogeneous} tabular tasks
+            (regression \& classification), diverse curve shapes $\Rightarrow$
+            the regime transfer is hard.
+      \item Baselines: Random Search, Bayesian Optimization
+            (Gaussian-process surrogate). Meta-policies
+            frozen after training; evaluation budget $=20$.
+    \end{itemize}
 \end{block}
 
 \end{column}
@@ -178,98 +177,71 @@
 \begin{column}{\colwidth}
 
 % -------------------------------
-% Section: Results and discussion
+% Key result
 % -------------------------------
+\begin{block}{Key result: the same agent, two regimes}
 
-\begin{block}{Results and discussion}
-    \heading{Model estimates}
-    Pellentesque eget convallis lorem, vel vestibulum nisl. Vivamus suscipit augue at ipsum commodo semper. Duis hendrerit, metus non scelerisque ultricies, libero dolor malesuada diam, fermentum scelerisque augue justo a erat.
+    \textbf{Identical agent and ablation} (\texttt{LC-DQN} vs.\ curve-free
+    \texttt{HyperRL}) on a homogeneous and a heterogeneous benchmark --- the curve
+    features help \emph{only} when curve shapes vary.
 
-    \input{images/figure2}
+    \begin{figure}
+      \centering
+      \begin{subfigure}{0.55\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{images/20_budget.png}
+        \caption{\textbf{LCBench (homogeneous):} \texttt{LC-DQN} (green) $\approx$
+        \texttt{HyperRL} (orange) --- \emph{no gain}.}
+      \end{subfigure}
 
-    Cras ut fermentum nunc, id interdum ex. Donec tincidunt metus nulla, a interdum ante efficitur cursus. Proin justo mauris, imperdiet vel efficitur ac, lobortis et neque. Etiam ac iaculis libero.
+      \vspace{0.6em}
 
-    \input{tables/table1}
+      \begin{subfigure}{0.55\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{images/kaggle_eval_budget.png}
+        \caption{\textbf{Kaggle (heterogeneous):} \texttt{LC-DQN} (green) clearly
+        below \texttt{HyperRL} (orange) --- \emph{consistent cold-start gain}.}
+      \end{subfigure}
+      \caption{Normalized simple regret vs.\ evaluation budget (lower is better);
+      same two RL variants on both benchmarks.}
+    \end{figure}
 
+    \input{tables/results}
+
+    The two variants differ \emph{only} in the appended derivative features, so the
+    Kaggle gap ($0.0217$ vs.\ $0.0251$) is directly attributable to the
+    learning-curve signal --- transfer alone does not beat Random Search.
 \end{block}
 
 % -------------------------------
-% Section: Conclusions
+% Conclusion / key takeaway (merged insight + conclusions)
 % -------------------------------
-   \begin{block}{Conclusions}
+   \begin{alertblock}{Conclusion: derivatives help when curve \emph{shape} varies}
     \begin{itemize}
-      \item Sed et augue accumsan nibh ullamcorper accumsanam dictum urna tortor, ut pretium leo eleifend.  
-      \item Donec suscipit, urna quis tempus consectetur, quam est placerat ante, et scelerisque metus velit. 
-      \item Nam dictum urna tortor, ut pretium leo eleifend efficitur.
-      \item Praesent blandit faucibus quam, et tincidunt mauris sagittis eget 2.2\%.
-      \item Dolor sit amet, consectetur adipiscing elit. Mauris in nulla ultricies suscipit.
+      \item \textbf{LCBench (homogeneous):} \texttt{LC-DQN} $\approx$ \texttt{HyperRL} ---
+            smooth, monotone curves are already well-predicted by the static descriptor
+            + scalar reward, so derivatives add little.
+      \item \textbf{Kaggle (heterogeneous):} diverse curve geometries (steady improvers,
+            early plateaus, overfitters) --- derivatives supply discriminative cold-start
+            signal, the \emph{only} RL variant to beat Random Search.
+      \item \textbf{Cheap \& zero-cost:} the derivative features are appended for free and
+            pay off precisely when curve \emph{shape} varies across configurations.
+      \item \textbf{Transfer + asymptotics:} the frozen cross-dataset policies start strong
+            (transfer pays off at cold-start); Bayesian Optimization still wins asymptotically ($0.0150$).
     \end{itemize}
-  \end{block}
-
+  \end{alertblock}
 
 % -------------------------------
-% Section: What is already known about this subject?
+% Future work
 % -------------------------------
-  \begin{exampleblock}{What is already known about this subject?}
-
-    \begin{itemize}
-      \item \textbf{Lorem ipsum dolor sit amet}, consectetur adipiscing elit. Mauris in nulla ac leo ultricies suscipit.
-      \item The \textbf{Duis vestibulum augue} in leo placerat, sit amet pharetra mi elementum.
-      \item \textbf{Fusce sit amet} velit pulvinar, feugiat velit sit amet, tristique dolor.
-    \end{itemize}
-
+  \begin{exampleblock}{Future work}
+    \textbf{Surrogate-accelerated evaluation:} replace full training runs with a
+    multi-dataset surrogate, letting the agent exploit the curve signal across far
+    more datasets at a fraction of the cost.
   \end{exampleblock}
-
-  
-% -------------------------------
-% Section: What does this study add?
-% -------------------------------
-%  \begin{exampleblock}{What does this study add?}
-%    \begin{itemize}
-%     \item Lorem ipsum dolor sit amet, consectetur adipiscing elit. Mauris in nulla ac leo ultricies suscipit.
-%      \item The Duis vestibulum augue in leo placerat, sit amet pharetra mi elementum.
-%      \item Fusce sit amet velit pulvinar, feugiat velit sit amet, tristique dolor.
-%    \end{itemize}
-
-%  \end{exampleblock}
-
-
-% -------------------------------
-% Section: Practical Implications
-% -------------------------------
-  \begin{exampleblock}{Practical implications}
-    \begin{itemize}
-      \item Ipsum dolor sit amet, consectetur adipiscing elit. Mauris in nulla ultricies suscipit.
-      \item Duis augue in leo placerat, sit amet pharetra mi elementum.
-      \item Sit amet pulvinar, feugiat velit sit amet, tristique dolor.
-    \end{itemize}
-
-  \end{exampleblock}
-
-% -------------------------------
-% Section: References
-% ------------------------------- 
-
-  \begin{block}{References}
-
-    \nocite{*}
-    \footnotesize{\bibliographystyle{plain}\bibliography{poster}}
-
-  \end{block}
-
-% -------------------------------
-% Section: Portfolio
-% -------------------------------
-%  \begin{block}{Author$^{1}$ Portfolio Website}
-    
-%    \input{images/figure3}
-
-%  \end{block}
 
 \end{column}
 \separatorcolumn
-
-
 
 \end{columns}
 \end{frame}
